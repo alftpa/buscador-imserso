@@ -37,7 +37,7 @@ SIN_TRANSPORTE = "SIN TRANSPORTE"
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "ImsersoFinder")
 INDEX_TTL = 7 * 24 * 3600      # catálogo de hoteles
 CONFIG_TTL = 24 * 3600         # opciones por origen
-RESULT_TTL = 6 * 3600          # calendarios y búsquedas de fechas
+RESULT_TTL = 2 * 86400          # calendarios y búsquedas de fechas
 WORKERS = 3                    # hilos simultáneos contra la web
 MIN_GAP = 0.35                 # segundos mínimos entre peticiones a la misma web
 
@@ -598,7 +598,7 @@ def warm_configs():
 
 PRE = {"data": {}, "ts": 0, "running": False, "done": 0, "total": 0}
 PRE_PATH = os.path.join(CACHE_DIR, "disponibilidad.json")
-PRE_TTL = 6 * 3600
+PRE_TTL = 2 * 86400
 
 
 def _estado_of(site, origin, code, stay=None, force=False):
@@ -1164,6 +1164,7 @@ tr:last-child td{border-bottom:0}tr.r:hover td{background:#f5f9fd}
  </div>
  <div class="row">
   <button id="buscar">🔎 Buscar viajes</button>
+  <a href="https://github.com/alftpa/buscador-imserso/actions/workflows/snapshot.yml" target="_blank" rel="noopener" title="Abre GitHub: pulsa «Run workflow» y en ~1 h todos los datos estarán actualizados"><button class="sec" type="button">⟳ Relanzar scrapeo completo</button></a>
   <button class="sec" id="reindex" title="Vuelve a leer el catálogo de hoteles (2-3 min)">↻ Catálogo</button>
   <label class="tog"><input type="checkbox" id="incwl"> incluir solo lista de espera</label>
   <span id="status"><span class="spin"></span><span id="stxt"></span></span>
