@@ -444,6 +444,9 @@ class HotelIndex:
     def __init__(self):
         self.path = os.path.join(CACHE_DIR, "hoteles.json")
         self.data = load_json(self.path, INDEX_TTL)   # {site: {hotel: {"towns": {code: name}, "code": hotelCode}}}
+        if self.data is None:   # arranque en limpio (p. ej. Render): catálogo incluido en el repo
+            seed = load_json(os.path.join(os.path.dirname(os.path.abspath(__file__)), "seed_hoteles.json"), 10 ** 10)
+            self.data = seed
         self.lock = threading.Lock()
         if self.data:
             log("catálogo de hoteles cargado de caché:", sum(len(v) for v in self.data.values()), "hoteles")
