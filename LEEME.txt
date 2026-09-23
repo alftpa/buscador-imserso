@@ -1,0 +1,51 @@
+BUSCADOR IMSERSO  (turismosocial.es + mundicolor.es)
+====================================================
+
+ARRANCAR
+  Doble clic en "Buscador IMSERSO.command". Se abre Terminal y, al momento, el
+  buscador en el navegador (http://127.0.0.1:8765). No hay que instalar nada.
+  Si macOS dice que no puede abrirlo: clic derecho > Abrir > Abrir.
+  Para pararlo: cierra la ventana de Terminal.
+
+CÓMO FUNCIONA
+  - Al arrancar lee (o recupera de caché) qué ofrece cada origen: el punto
+    verde de arriba a la derecha indica que está listo.
+  - Los desplegables se filtran entre sí: Web, Zona, Provincia/isla,
+    Localidad, Hotel, Origen y Estancia. Elige "Canarias" y el
+    resto solo muestra lo que existe en Canarias; elige un origen y solo
+    salen las localidades a las que se viaja desde ahí, etc.
+  - "Buscar viajes": lista por localidad, con los orígenes que la ofrecen,
+    estancias, y cuántas fechas hay disponibles / en lista de espera /
+    completas. Las combinaciones sin plazas disponibles se descartan
+    (marca "incluir solo lista de espera" para verlas también).
+  - "Ver fechas y precios": modal con calendario (verde disponible, ámbar
+    lista de espera, rojo completo; pulsa un día para filtrar), resumen y
+    tabla de viajes con hotel, hora de salida y precio.
+  - Pulsa el nombre de un hotel (en el listado o en el modal) para ver su
+    ficha: fotos, dirección, descripción, servicios y mapa.
+
+GUARDADO LOCAL
+  Todo se guarda en ~/Library/Application Support/ImsersoFinder/:
+  catálogo de hoteles (7 días), oferta por origen (24 h) y calendarios y
+  búsquedas de fechas (6 h). Repetir una búsqueda es instantáneo; el botón
+  "↻ Actualizar" del modal vuelve a consultar la web en ese momento.
+  Los filtros elegidos se recuerdan en el navegador al recargar.
+
+CATÁLOGO DE HOTELES
+  La primera vez pulsa "↻ Catálogo" (2-3 min). Se guarda en disco y además
+  aprende hoteles nuevos con cada consulta de fechas. Solo puede conocer
+  hoteles de destinos con alguna fecha con plaza: si una zona está completa
+  del todo (p. ej. Canarias en Mundicolor a día de hoy) sus hoteles no
+  aparecen hasta que abran plazas.
+
+AVISO
+  Las webs tienen protección anti-robots. Si sale "ha activado la
+  verificación anti-robots / 405", espera 15-30 minutos. El programa ya va
+  despacio a propósito.
+
+POR TERMINAL (opcional)
+  python3 imserso_finder.py --localidad benidorm --origen madrid --fechas
+  python3 imserso_finder.py --hotel "villa naranjos" --fechas
+  python3 imserso_finder.py --reindex
+
+Caché: ~/Library/Application Support/ImsersoFinder/  (se puede borrar sin más)
