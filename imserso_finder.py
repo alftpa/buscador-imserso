@@ -1313,10 +1313,11 @@ def main():
     if len(sys.argv) > 1:
         return cli(sys.argv[1:])
     port = int(os.environ.get("PORT") or 0) or free_port()
-    srv = http.server.ThreadingHTTPServer((os.environ.get("HOST", "127.0.0.1"), port), Handler)
+    on_cloud = bool(os.environ.get("RENDER"))
+    srv = http.server.ThreadingHTTPServer((os.environ.get("HOST", "0.0.0.0" if on_cloud else "127.0.0.1"), port), Handler)
     url = f"http://127.0.0.1:{port}/"
     log("Buscador IMSERSO en", url, "— cierra esta ventana para parar")
-    if not os.environ.get("HEADLESS"):
+    if not (os.environ.get("HEADLESS") or on_cloud):
         threading.Thread(target=lambda: (time.sleep(0.6), webbrowser.open(url)), daemon=True).start()
     threading.Thread(target=warm_configs, daemon=True).start()
     try:
