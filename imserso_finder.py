@@ -213,11 +213,11 @@ class Site:
             log(self.key, "cargado:", len(self.origins), "orígenes,", len(self.towns), "localidades")
 
     # -- API ---------------------------------------------------------------
-    def config(self, origin):
+    def config(self, origin, force=False):
         """Opciones (destino/provincia/localidad/estancia) para un origen (None = sin transporte). Caché 24 h."""
         key = origin or "_"
         hit = self._config_cache.get(key)
-        if hit is not None:
+        if hit is not None and not force:
             return hit
         payload = {"criteria": {"productTypes": PRODUCT_TYPES, "origin": origin,
                                 "transportIncluded": origin is not None, "petsAllowed": None}}
@@ -596,6 +596,164 @@ def warm_configs():
     log("opciones de todos los orígenes listas")
 
 
+PRE = {"data": {}, "ts": 0, "running": False, "done": 0, "total": 0}
+PRE_PATH = os.path.join(CACHE_DIR, "disponibilidad.json")
+PRE_TTL = 6 * 3600
+
+
+def _estado_of(site, origin, code, stay=None, force=False):
+    if code.startswith("D:"):
+        kw = dict(destination=code[2:], sub_type=site.place(code)["subType"])
+    elif code.startswith("P:"):
+        kw = dict(province=code[2:])
+    else:
+        kw = dict(town=code)
+    cells, completos = site.calendar(origin=origin, stay=stay, force=force, **kw)
+    disp = sum(1 for c in cells if c[0] == "disponible")
+    return dict(fechas=len(cells), disponibles=disp, espera=len(cells) - disp, completos=completos,
+                primera=min((c[1] for c in cells), default=None), ultima=max((c[1] for c in cells), default=None))
+
+
+def precache_loop():
+    """Comprueba en segundo plano la disponibilidad de TODAS las combinaciones origen × localidad."""
+    d = load_json(PRE_PATH, 10 ** 10)
+    if d:
+        PRE["data"], PRE["ts"] = d.get("data", {}), d.get("ts", 0)
+        log("disponibilidad cargada de disco:", len(PRE["data"]), "combinaciones")
+    while True:
+        if time.time() - PRE["ts"] > PRE_TTL:
+            try:
+                precache_once()
+            except Exception as e:  # noqa
+                log("precache error", e)
+                time.sleep(600)
+        time.sleep(300)
+
+
+def precache_once():
+    jobs = []
+    for site in SITES.values():
+        site.load()
+        for o in [None] + [c for c, _ in site.origins]:
+            for tc in sorted({x["townCode"] for x in site.config(o, force=True) if x["townCode"] in site.towns}):
+                jobs.append((site, o, tc))
+    PRE.update(running=True, done=0, total=len(jobs))
+    log("precache: comprobando", len(jobs), "combinaciones")
+    new = {}
+
+    def one(j):
+        site, o, tc = j
+        try:
+            new[f"{site.key}|{o or '_'}|{tc}"] = _estado_of(site, o, tc, force=True)
+        except WafBlocked:
+            raise
+        except Exception as e:  # noqa
+            log("precache fallo", site.key, o, tc, e)
+        PRE["done"] += 1
+        if PRE["done"] % 200 == 0:
+            for s_ in SITES.values():
+                s_.flush()
+
+    try:
+        with cf.ThreadPoolExecutor(WORKERS) as ex:
+            list(ex.map(one, jobs))
+    except WafBlocked as e:
+        log("precache interrumpido:", e)
+        PRE["data"].update(new)
+        PRE["running"] = False
+        time.sleep(1800)
+        return
+    PRE.update(data=new, ts=time.time(), running=False)
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(PRE_PATH, "w", encoding="utf-8") as f:
+        json.dump({"ts": PRE["ts"], "data": new}, f, ensure_ascii=False)
+    for s_ in SITES.values():
+        s_.flush()
+    log("precache completo:", sum(1 for v in new.values() if v["disponibles"]), "con plaza de", len(new))
+
+
+SNAP = {"ts": 0, "fechas": {}, "src": None}
+SNAPSHOT_URL = os.environ.get("SNAPSHOT_URL", "https://raw.githubusercontent.com/alftpa/buscador-imserso/data/snapshot.json.gz")
+SNAP_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snapshot.json.gz")
+
+
+def apply_snapshot(d, src):
+    import gzip  # noqa
+    if not d or d.get("ts", 0) <= SNAP["ts"]:
+        return False
+    PRE["data"], PRE["ts"] = d.get("estado", {}), d["ts"]
+    SNAP.update(ts=d["ts"], fechas=d.get("fechas", {}), src=src)
+    for sk, cfg in (d.get("config") or {}).items():
+        if sk in SITES:
+            SITES[sk]._config_cache = cfg
+    if d.get("hoteles"):
+        INDEX.data = d["hoteles"]
+    log("snapshot aplicado de", src, "·", len(PRE["data"]), "combinaciones,", len(SNAP["fechas"]), "con fechas")
+    return True
+
+
+def snapshot_loop():
+    import gzip
+    try:
+        with gzip.open(SNAP_LOCAL, "rt", encoding="utf-8") as f:
+            apply_snapshot(json.load(f), "fichero local")
+    except Exception:
+        pass
+    while True:
+        try:
+            req = urllib.request.Request(SNAPSHOT_URL + f"?t={int(time.time() // 600)}", headers={"User-Agent": "ImsersoFinder"})
+            raw = urllib.request.urlopen(req, timeout=60).read()
+            apply_snapshot(json.loads(gzip.decompress(raw).decode("utf-8")), "GitHub")
+        except Exception as e:  # noqa
+            log("snapshot no disponible:", e)
+        time.sleep(900)
+
+
+def build_snapshot(path, progress=log):
+    """Scrapeo completo (lo ejecuta GitHub Actions): disponibilidad + fechas/precios de todo lo que tiene plaza."""
+    import gzip
+    precache_once()
+    fechas = {}
+    keys = [k for k, v in PRE["data"].items() if v and v["fechas"]]
+    progress(f"snapshot: leyendo fechas de {len(keys)} combinaciones")
+    done = [0]
+
+    def one(k):
+        sk, o, tc = k.split("|", 2)
+        try:
+            r = dates_for(SITES[sk], None if o == "_" else o, tc)
+            fechas[k] = dict(rows=r["rows"], completos=r["completos"], fechas=r["fechas"], days=r["days"])
+        except WafBlocked:
+            raise
+        except Exception as e:  # noqa
+            log("snapshot fallo", k, e)
+        done[0] += 1
+        if done[0] % 50 == 0:
+            progress(f"snapshot: {done[0]}/{len(keys)}")
+
+    try:
+        with cf.ThreadPoolExecutor(WORKERS) as ex:
+            list(ex.map(one, keys))
+    except WafBlocked as e:
+        log("snapshot parcial por bloqueo:", e)
+    d = dict(ts=time.time(), estado=PRE["data"], fechas=fechas, hoteles=INDEX.data,
+             config={k: s_._config_cache for k, s_ in SITES.items()})
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
+    log("snapshot escrito:", path, os.path.getsize(path) // 1024, "KB,", len(fechas), "combinaciones con fechas")
+
+
+def keep_awake():
+    """Render free se duerme sin tráfico: un aviso cada 10 min lo mantiene despierto."""
+    url = os.environ.get("RENDER_EXTERNAL_URL")
+    while url:
+        time.sleep(600)
+        try:
+            urllib.request.urlopen(url + "/ping", timeout=30).read()
+        except Exception:
+            pass
+
+
 def meta():
     towns, offers, origins = {}, {}, []
     for s in SITES.values():
@@ -618,7 +776,8 @@ def meta():
             towns.setdefault((h["site"], t["code"]), t)
     return dict(origins=origins, stays=STAYS, towns=sorted(towns.values(), key=lambda t: (norm(t["name"]), t["site"])),
                 hotels=[dict(site=h["site"], name=h["name"], code=h["code"], towns=[t["code"] for t in h["towns"]]) for h in hotels],
-                offers=offers, warm=WARM["done"], warmError=WARM["error"])
+                offers=offers, warm=WARM["done"], warmError=WARM["error"],
+                pre=dict(n=len(PRE["data"]), ts=PRE["ts"], running=PRE["running"], done=PRE["done"], total=PRE["total"]))
 
 
 # --------------------------------------------------------------------------- #
@@ -806,7 +965,27 @@ def job_buscar(p):
     return start_job(run)
 
 
+def from_snapshot(p):
+    k = f"{p['site']}|{p.get('origin') or '_'}|{p['place']}"
+    d = SNAP["fechas"].get(k)
+    if d is None or p.get("force"):
+        return None
+    rows = d["rows"]
+    stay = p.get("stay")
+    if stay:
+        rows = [r for r in rows if r.get("stay") == stay]
+    if p.get("hotel"):
+        n = norm(p["hotel"])
+        rows = [r for r in rows if any(n in norm(h["name"]) for h in r.get("hotels") or [dict(name=r["hotel"])])]
+    return dict(rows=rows, completos=d["completos"], fechas=d["fechas"], days=d["days"], snapshot=SNAP["ts"])
+
+
 def job_fechas(p):
+    hit = from_snapshot(p)
+    if hit is not None:
+        jid = uuid.uuid4().hex
+        JOBS[jid] = {"progress": "", "done": True, "result": hit, "error": None}
+        return jid
     site = SITES[p["site"]]
     return start_job(lambda progress: dates_for(site, p.get("origin") or None, p["place"], p.get("stay") or None,
                                                 p.get("hotel") or None, progress, force=bool(p.get("force"))))
@@ -839,7 +1018,8 @@ def job_listado(p):
                     st = sorted(stays, key=lambda k: list(STAYS).index(k) if k in STAYS else 99)
                     rows.append(dict(site=s.key, host=s.host, origin=ok, originName=s.origin_name(ok), place=tc, placeName=t["name"],
                                      province=t["provinceName"], zone=t["destinationName"],
-                                     subType=SUBTYPES.get(t["subType"], t["subType"]), stays=[STAYS.get(k, k) for k in st]))
+                                     subType=SUBTYPES.get(t["subType"], t["subType"]), stays=[STAYS.get(k, k) for k in st],
+                                     estado=None if stay else PRE["data"].get(f"{s.key}|{key}|{tc}")))
         rows.sort(key=lambda r: (norm(r["placeName"]), r["originName"] == SIN_TRANSPORTE, norm(r["originName"]), r["site"]))
         return dict(rows=rows)
 
@@ -857,6 +1037,10 @@ def job_estado(p):
         def one(r):
             site = SITES[r["site"]]
             code = r["place"]
+            pre = PRE["data"].get(f"{r['site']}|{r.get('origin') or '_'}|{code}")
+            if pre is not None and not stay:
+                done[0] += 1
+                return pre
             if code.startswith("D:"):
                 kw = dict(destination=code[2:], sub_type=site.place(code)["subType"])
             elif code.startswith("P:"):
@@ -1067,9 +1251,10 @@ async function loadMeta(){
   META=await api('/api/meta');const first=!$('#stay').options.length||$('#stay').options.length===1;
   $('#stay').innerHTML='<option value="">Todas</option>'+Object.entries(META.stays).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
   cascade();if(first){loadF();cascade();}
-  $('#dot').classList.toggle('ok',META.warm);$('#dott').textContent=META.warm?`${META.hotels.length} hoteles · ${META.towns.length} localidades`:'Leyendo orígenes…';
+  $('#dot').classList.toggle('ok',META.warm);const P=META.pre||{};$('#dott').textContent=!META.warm?'Leyendo orígenes…':P.running&&!P.n?`Precargando disponibilidad ${P.done}/${P.total}`:`${META.hotels.length} hoteles · ${META.towns.length} localidades`+(P.ts?` · plazas al ${new Date(P.ts*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`:'');
+  $('#dot').classList.toggle('ok',META.warm&&!!P.n);
   if(!META.hotels.length)$('#help').innerHTML='<b>Primera vez:</b> pulsa <b>↻ Catálogo</b> para leer los hoteles de las dos webs (2-3 min).';
-  if(!META.warm)setTimeout(loadMeta,3000);
+  if(!META.warm||(P.running&&!P.n))setTimeout(loadMeta,5000);
 }
 ['site','zona','prov','localidad','hotel','origen','stay'].forEach(id=>$('#'+id).addEventListener('change',()=>{cascade();saveF();}));
 function saveF(){try{localStorage.setItem('imserso.f',JSON.stringify(Object.fromEntries(['site','zona','prov','localidad','hotel','origen','stay','incwl'].map(id=>[id,id==='incwl'?$('#incwl').checked:sel(id)]))));}catch(e){}}
@@ -1086,11 +1271,15 @@ async function buscar(){
     const r=await runJob('/api/listado',{towns,origins,stay:sel('stay')});
     rows=r.rows;
     if(!rows.length){$('#res1').style.display='';$('#list').innerHTML='';$('#kpis').innerHTML='';$('#msg1').innerHTML='<div class="msg">No hay nada programado con esos filtros.</div>';return;}
-    checked=false;$('#res1').style.display='';$('#msg1').innerHTML='';$('#kpis').innerHTML='';$('#sub1').textContent=`Comprobando plazas de ${rows.length} combinaciones… (las que no tengan plaza desaparecerán)`;render1();
+    checked=false;$('#msg1').innerHTML='';
+    const pend=rows.map((x,i)=>[x,i]).filter(([x])=>!x.estado);
+    if(pend.length){
+      $('#stxt').textContent=`Comprobando plazas de ${pend.length} combinaciones…`;
+      const e=await runJob('/api/estado',{rows:pend.map(([x])=>({site:x.site,origin:x.origin,place:x.place})),stay:sel('stay')});
+      e.estados.forEach((st,k)=>rows[pend[k][1]].estado=st);
+    }
+    checked=true;$('#res1').style.display='';render1(true);
     $('#res1').scrollIntoView({behavior:'smooth',block:'start'});
-    const e=await runJob('/api/estado',{rows:rows.map(x=>({site:x.site,origin:x.origin,place:x.place})),stay:sel('stay')});
-    e.estados.forEach((st,i)=>rows[i].estado=st);checked=true;
-    render1(true);
   }catch(e){showErr(e.message)}finally{busy(false)}
 }
 let checked=false;
@@ -1147,7 +1336,7 @@ async function fechas(x,force){cur2=x;
     $('#sum2').innerHTML=`<div class="kpi"><b>${r.fechas}</b><span>fechas con salida</span></div><div class="kpi"><b class="st-ok">${ok}</b><span>viajes disponibles</span></div><div class="kpi"><b class="st-warn">${wl}</b><span>lista de espera</span></div><div class="kpi"><b class="st-bad">${r.completos}</b><span>días completos</span></div>${prices.length?`<div class="kpi"><b>${Math.min(...prices).toFixed(2)} €</b><span>desde</span></div>`:''}`;
     $('#chips').innerHTML=`<span class="chip ${filt2===''?'on':''}" data-f="">Todo (${rows2.length})</span><span class="chip ${filt2==='st-ok'?'on':''}" data-f="st-ok">Disponible (${ok})</span><span class="chip ${filt2==='st-warn'?'on':''}" data-f="st-warn">Lista de espera (${wl})</span>`;
     document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{filt2=c.dataset.f;document.querySelectorAll('.chip').forEach(d=>d.classList.toggle('on',d===c));render2();});
-    $('#msg2').innerHTML=hname?`<div class="mut" style="margin-bottom:10px">Solo el hotel «${esc(hname)}».</div>`:'';
+    $('#msg2').innerHTML=`<div class="mut" style="margin-bottom:10px">${hname?`Solo el hotel «${esc(hname)}». `:''}${r.snapshot?`Datos del ${new Date(r.snapshot*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · pulsa ↻ Actualizar para consultar ahora.`:'Consultado ahora mismo.'}</div>`;
     renderCal();render2();
   }catch(e){$('#msg2').innerHTML=`<div class="err">⚠️ ${esc(e.message)}</div>`}finally{busy(false)}
 }
@@ -1214,6 +1403,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(b)
 
     def do_GET(self):
+        if self.path == "/ping":
+            self.send_response(204)
+            self.end_headers()
+            return
         if not self._authed():
             return
         if self.path == "/" or self.path.startswith("/index"):
@@ -1313,6 +1506,12 @@ def cli(args):
 
 
 def main():
+    if len(sys.argv) > 2 and sys.argv[1] == "--snapshot":
+        for s_ in SITES.values():
+            s_.load()
+        if not INDEX.ready():
+            INDEX.build()
+        return build_snapshot(sys.argv[2])
     if len(sys.argv) > 1:
         return cli(sys.argv[1:])
     port = int(os.environ.get("PORT") or 0) or free_port()
@@ -1323,6 +1522,7 @@ def main():
     if not (os.environ.get("HEADLESS") or on_cloud):
         threading.Thread(target=lambda: (time.sleep(0.6), webbrowser.open(url)), daemon=True).start()
     threading.Thread(target=warm_configs, daemon=True).start()
+    threading.Thread(target=snapshot_loop, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

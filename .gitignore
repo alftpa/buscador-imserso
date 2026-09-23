@@ -3,3 +3,4 @@ URL.txt
 __pycache__/
 *.pyc
 .DS_Store
+snapshot.json.gz
