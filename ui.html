@@ -55,6 +55,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .gh{display:flex;align-items:center;gap:10px;padding:13px 15px;background:var(--soft);border-bottom:1px solid var(--line);flex-wrap:wrap}
 .gh .nm{font-weight:800;font-size:17px;letter-spacing:-.01em}.gh .wh{color:var(--mut);font-size:13px}.gh .best{margin-left:auto;text-align:right;font-size:12px;color:var(--mut)}.gh .best b{display:block;font-size:17px;color:var(--ink)}
 .hot{padding:8px 15px;border-bottom:1px solid var(--line);font-size:13px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:var(--mut);white-space:nowrap}.gh .lbl{background:var(--card);border:1px solid var(--line);padding:3px 8px;border-radius:6px}.hot .lbl{margin-right:4px}.mob{display:none}
 .hchip{padding:3px 9px;border-radius:20px;background:var(--soft);border:1px solid var(--line);cursor:pointer;font-weight:500;font-size:12.5px}.hchip:hover{border-color:var(--acc2);color:var(--acc)}
 .rw{display:grid;grid-template-columns:1.3fr 1fr 1.2fr 1.9fr 1.2fr .9fr auto;gap:10px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer}
 .rw:last-child{border-bottom:0}.rw:hover{background:color-mix(in srgb,var(--acc2) 6%,var(--card))}
@@ -97,11 +98,11 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .svc{columns:2;font-size:14px;padding-left:18px;margin:6px 0 0}.mfoot{padding:0 18px 18px;display:flex;gap:10px;flex-wrap:wrap}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;z-index:80;display:none}
 @media(max-width:1000px){.filters{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:820px){.mgrid,.hbody{grid-template-columns:1fr}.svc{columns:1}
+@media(max-width:820px){.mob{display:inline}.mgrid,.hbody{grid-template-columns:1fr}.svc{columns:1}
  .rw{grid-template-columns:1fr auto;gap:4px 10px}.rw.hd{display:none}.rw>*:nth-child(2),.rw>*:nth-child(3),.rw>*:nth-child(4),.rw>*:nth-child(5){grid-column:1/-1}.rw>.go{grid-row:1;grid-column:2}
  .trip{grid-template-columns:1fr auto}.trip .mid{grid-column:1/-1;grid-row:2}}
 .ftog{display:none;width:100%;margin-bottom:12px}
-@media(max-width:820px){.ftog{display:block}.card.fc .filters{display:none}.card.fc.open .filters{display:grid}}
+@media(max-width:820px){.mob{display:inline}.ftog{display:block}.card.fc .filters{display:none}.card.fc.open .filters{display:grid}}
 @media(max-width:560px){.hero{padding:14px 14px 70px}.hero small{display:none}.logo{width:40px;height:40px;font-size:22px}.hero .in{gap:10px}
  .mh{flex-wrap:wrap;padding:12px 14px}.mh>div:first-child{flex:1 1 calc(100% - 50px);order:1}.mh .x{order:2}.mh .sp{display:none}.mh a,.mh #refresh2{order:3}.mh h1{font-size:16px}.mh small{font-size:11.5px}
  .mpad .kpis{grid-template-columns:repeat(3,1fr);gap:6px}.mpad .kpi{padding:7px 8px}.mpad .kpi b{font-size:16px}.mpad .kpi span{font-size:9px;letter-spacing:.03em}
@@ -123,11 +124,11 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 <div class="card fc" id="fcard">
  <button class="sec ftog" id="ftog">⚙️ Filtros <span id="fcount"></span> ▾</button>
  <div class="filters">
-  <div><label class="l">Zona</label><select id="zona"></select></div>
-  <div><label class="l">Provincia / isla</label><select id="prov"></select></div>
-  <div><label class="l">Localidad</label><select id="localidad"></select></div>
-  <div><label class="l">Hotel</label><select id="hotel"></select></div>
-  <div><label class="l">Origen (salida)</label><select id="origen"></select></div>
+  <div><label class="l">📍 Zona de destino</label><select id="zona"></select></div>
+  <div><label class="l">📍 Provincia / isla de destino</label><select id="prov"></select></div>
+  <div><label class="l">📍 Destino (localidad)</label><select id="localidad"></select></div>
+  <div><label class="l">🏨 Hotel en destino</label><select id="hotel"></select></div>
+  <div><label class="l">🚌 Origen (ciudad de salida)</label><select id="origen"></select></div>
   <div><label class="l">Ordenar por</label><select id="orden"><option value="fecha">Salida más próxima</option><option value="precio">Precio más bajo</option><option value="plazas">Más fechas con plaza</option><option value="az">Localidad A-Z</option></select></div>
  </div>
  <div class="bar2">
@@ -326,15 +327,15 @@ function render(){
 function groupHTML(g,f){
   const hs=f.hotel?[f.hotel]:[...new Set(g.list.flatMap(r=>r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels))].sort();
   const list=g.list.slice().sort((a,b)=>(a.on==='SIN TRANSPORTE')-(b.on==='SIN TRANSPORTE')||(nextDate(a,f)||'9').localeCompare(nextDate(b,f)||'9'));
-  return `<div class="grp"><div class="gh">${[...g.sites].map(siteTag).join(' ')}<span class="nm">${esc(g.x.placeName)}</span><span class="wh">${esc(g.x.province)}${g.x.zone&&g.x.zone!==g.x.province?' · '+esc(g.x.zone):''}</span>
+  return `<div class="grp"><div class="gh">${[...g.sites].map(siteTag).join(' ')}<span class="lbl">📍 Destino</span><span class="nm">${esc(g.x.placeName)}</span><span class="wh">${esc(g.x.province)}${g.x.zone&&g.x.zone!==g.x.province?' · '+esc(g.x.zone):''}</span>
    <span class="best">${isFinite(g.desde)?`desde<b>${eur(g.desde)}</b>`:''}</span></div>
-   ${hs.length?`<div class="hot"><span class="mut sm">🏨</span>${hs.slice(0,8).map(h=>`<span class="hchip" data-h="${esc(h)}" data-s="${esc(g.x.site)}">${esc(h.replace(/\s*\([^)]*\)\s*$/,''))}</span>`).join('')}${hs.length>8?`<span class="mut sm">+${hs.length-8} más</span>`:''}</div>`:''}
-   <div class="rw hd"><span>Origen</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
+   ${hs.length?`<div class="hot"><span class="lbl">🏨 Hoteles en el destino</span>${hs.slice(0,8).map(h=>`<span class="hchip" data-h="${esc(h)}" data-s="${esc(g.x.site)}">${esc(h.replace(/\s*\([^)]*\)\s*$/,''))}</span>`).join('')}${hs.length>8?`<span class="mut sm">+${hs.length-8} más</span>`:''}</div>`:''}
+   <div class="rw hd"><span>🚌 Sales desde (origen)</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
    ${list.map(r=>rowHTML(r,f)).join('')}</div>`;}
 function rowHTML(r,f){
   const md=r.estado?avail(r,f):{d:[],w:[]}, nd=nextDate(r,f), pr=md.desde;
   const pl=r.estado?`${md.d.length?`<span class="pill ok">● ${md.d.length} disponible${md.d.length>1?'s':''}</span>`:''}${md.w.length?`<span class="pill warn">◐ ${md.w.length} en espera</span>`:''}`:'<span class="mut sm">—</span>';
-  return `<div class="rw" data-k="${esc(r.key)}"><div class="orig"><b>${esc(r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName)}</b>${r.on==='SIN TRANSPORTE'?'<div class="mut sm">voy por mi cuenta</div>':''}</div>
+  return `<div class="rw" data-k="${esc(r.key)}"><div class="orig"><span class="mob mut sm">Sales desde </span><b>${esc(r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName)}</b>${r.on==='SIN TRANSPORTE'?'<div class="mut sm">vas por tu cuenta al hotel</div>':''}</div>
    <div><span class="tag p">${esc(r.subType)}</span>${r.site==='mundicolor'?'':''}</div><div>${r.stays.map(s=>`<span class="tag">${esc(s)}</span>`).join('')}</div><div>${pl}</div>
    <div>${nd?`<b>${fmtShort(nd)}</b>`:'<span class="mut">—</span>'}${r.estado&&r.estado.ultima?`<div class="mut sm">${md.d.length+md.w.length>1?'última '+fmtShort(md.d.concat(md.w).sort().pop()):''}</div>`:''}</div>
    <div class="price">${pr!=null?eur(pr):'<span class="mut sm">ver</span>'}</div>
@@ -363,8 +364,8 @@ let cur2=null,rows2=[],days2=[],filt2='st-ok',day2='',mes2='';
 const stC=s=>{s=(s||'').toLowerCase();return s.includes('disponible')?'st-ok':s.includes('espera')?'st-warn':'st-bad';};
 async function openDates(r,force){
   if(!r)return;cur2=r;day2='';filt2=$('#incwl').checked?'':'st-ok';mes2=sel('mes');
-  $('#t2').textContent=`${r.placeName} · desde ${r.on==='SIN TRANSPORTE'?'sin transporte':r.originName}`;
-  $('#t2s').textContent=`${r.province||''}${r.zone&&r.zone!==r.province?' · '+r.zone:''} · ${r.subType} · ${r.site==='mundicolor'?'mundicolor.es':'turismosocial.es'}`;
+  $('#t2').textContent=`${r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName} → ${r.placeName}`;
+  $('#t2s').textContent=`Origen: ${r.on==='SIN TRANSPORTE'?'vas por tu cuenta':r.originName} · Destino: ${r.placeName}, ${r.province||''}${r.zone&&r.zone!==r.province?' · '+r.zone:''} · ${r.subType} · ${r.site==='mundicolor'?'mundicolor.es':'turismosocial.es'}`;
   $('#book').href=`https://www.${r.site==='mundicolor'?'mundicolor':'turismosocial'}.es/scheduler`;
   $('#sum2').innerHTML='';$('#chips').innerHTML='';$('#cal').innerHTML='<div class="skel"></div><div class="skel"></div>';$('#trips').innerHTML='<div class="skel"></div><div class="skel"></div><div class="skel"></div>';$('#msg2').innerHTML='';
   $('#ov2').classList.add('open');history.replaceState(null,'','#v='+encodeURIComponent(r.key));
