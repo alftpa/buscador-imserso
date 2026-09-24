@@ -38,8 +38,9 @@ CACHE_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Suppor
 INDEX_TTL = 7 * 24 * 3600      # catálogo de hoteles
 CONFIG_TTL = 24 * 3600         # opciones por origen
 RESULT_TTL = 2 * 86400          # calendarios y búsquedas de fechas
-WORKERS = 3                    # hilos simultáneos contra la web
-MIN_GAP = 0.35                 # segundos mínimos entre peticiones a la misma web
+WORKERS = int(os.environ.get("WORKERS", 3))          # hilos simultáneos contra la web
+MIN_GAP = float(os.environ.get("MIN_GAP", 0.35))     # segundos mínimos entre peticiones a la misma web
+WAF_WAIT = int(os.environ.get("WAF_WAIT", 0))        # >0: ante bloqueo, esperar y reintentar (scrapeo programado)
 
 
 def origin_match(filt, name):
@@ -160,6 +161,18 @@ class Site:
         return html
 
     def _post_json(self, path, payload, retries=4):
+        waits = 0
+        while True:
+            try:
+                return self._post_json_once(path, payload, retries)
+            except WafBlocked:
+                if not WAF_WAIT or waits >= 8:
+                    raise
+                waits += 1
+                log(f"bloqueo anti-robots en {self.host}: espero {WAF_WAIT // 60} min (intento {waits})")
+                time.sleep(WAF_WAIT)
+
+    def _post_json_once(self, path, payload, retries=4):
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         for attempt in range(retries + 1):
             self._pace()
@@ -609,9 +622,11 @@ def _estado_of(site, origin, code, stay=None, force=False):
     else:
         kw = dict(town=code)
     cells, completos = site.calendar(origin=origin, stay=stay, force=force, **kw)
-    disp = sum(1 for c in cells if c[0] == "disponible")
-    return dict(fechas=len(cells), disponibles=disp, espera=len(cells) - disp, completos=completos,
-                primera=min((c[1] for c in cells), default=None), ultima=max((c[1] for c in cells), default=None))
+    disp = sorted(c[1] for c in cells if c[0] == "disponible")
+    wl = sorted(c[1] for c in cells if c[0] != "disponible")
+    return dict(fechas=len(cells), disponibles=len(disp), espera=len(wl), completos=completos,
+                primera=min((c[1] for c in cells), default=None), ultima=max((c[1] for c in cells), default=None),
+                disp=disp, wl=wl)
 
 
 def precache_loop():
@@ -688,8 +703,57 @@ def apply_snapshot(d, src):
             SITES[sk]._config_cache = cfg
     if d.get("hoteles"):
         INDEX.data = d["hoteles"]
+    enrich_from_fechas()
     log("snapshot aplicado de", src, "·", len(PRE["data"]), "combinaciones,", len(SNAP["fechas"]), "con fechas")
     return True
+
+
+EXTRA = {}   # key -> {desde, desdeWl, hotels}
+
+
+def enrich_from_fechas():
+    for k, d in SNAP["fechas"].items():
+        rows = d.get("rows") or []
+        pd = [r["priceNum"] for r in rows if r.get("priceNum") and r.get("status") == "Disponible"]
+        pw = [r["priceNum"] for r in rows if r.get("priceNum")]
+        hs = sorted({h["name"] for r in rows for h in (r.get("hotels") or []) if h.get("name")})
+        by = {}
+        for r in rows:
+            for h in (r.get("hotels") or []):
+                e = by.setdefault(h.get("name") or "", {"disp": set(), "wl": set(), "desde": None, "stays": set()})
+                if r.get("status") == "Disponible":
+                    e["disp"].add(r["date"])
+                elif r.get("status") == "Lista de espera":
+                    e["wl"].add(r["date"])
+                if r.get("stay"):
+                    e["stays"].add(r["stay"])
+                if r.get("status") == "Disponible" and r.get("priceNum") and (e["desde"] is None or r["priceNum"] < e["desde"]):
+                    e["desde"] = r["priceNum"]
+        byHotel = {n: dict(disp=sorted(e["disp"]), wl=sorted(e["wl"] - e["disp"]), desde=e["desde"], stays=sorted(e["stays"]))
+                   for n, e in by.items() if n}
+        EXTRA[k] = dict(desde=min(pd) if pd else None, desdeTodo=min(pw) if pw else None, hotels=hs, byHotel=byHotel)
+
+
+def all_rows():
+    """Listado completo precalculado (todas las combinaciones con su disponibilidad)."""
+    out = []
+    for key, est in PRE["data"].items():
+        if not est or not est.get("fechas"):
+            continue
+        sk, o, tc = key.split("|", 2)
+        site = SITES.get(sk)
+        if not site or tc not in site.towns:
+            continue
+        t = site.towns[tc]
+        stays = sorted({x["stay"] for x in site._config_cache.get(o, []) if x["townCode"] == tc},
+                       key=lambda k: list(STAYS).index(k) if k in STAYS else 99)
+        ex = EXTRA.get(key, {})
+        out.append(dict(site=sk, origin=None if o == "_" else o, originName=site.origin_name(None if o == "_" else o),
+                        place=tc, placeName=t["name"], province=t["provinceName"], zone=t["destinationName"],
+                        subType=SUBTYPES.get(t["subType"], t["subType"]), stays=[STAYS.get(k, k) for k in stays],
+                        stayCodes=stays, estado=est, desde=ex.get("desde"), desdeTodo=ex.get("desdeTodo"),
+                        hotels=ex.get("hotels") or [], byHotel=ex.get("byHotel") or {}))
+    return out
 
 
 def snapshot_loop():
@@ -714,7 +778,7 @@ def build_snapshot(path, progress=log):
     import gzip
     precache_once()
     fechas = {}
-    keys = [k for k, v in PRE["data"].items() if v and v["fechas"]]
+    keys = [k for k, v in PRE["data"].items() if v and v.get("disponibles")]
     progress(f"snapshot: leyendo fechas de {len(keys)} combinaciones")
     done = [0]
 
@@ -849,6 +913,10 @@ JOBS = {}
 
 
 def start_job(fn):
+    if len(JOBS) > 300:
+        for k in list(JOBS)[:150]:
+            if JOBS[k]["done"]:
+                JOBS.pop(k, None)
     jid = uuid.uuid4().hex
     JOBS[jid] = {"progress": "Iniciando…", "done": False, "result": None, "error": None}
 
@@ -1041,26 +1109,16 @@ def job_estado(p):
             if pre is not None and not stay:
                 done[0] += 1
                 return pre
-            if code.startswith("D:"):
-                kw = dict(destination=code[2:], sub_type=site.place(code)["subType"])
-            elif code.startswith("P:"):
-                kw = dict(province=code[2:])
-            else:
-                kw = dict(town=code)
             try:
-                cells, completos = site.calendar(origin=r.get("origin") or None, stay=stay, **kw)
+                est = _estado_of(site, r.get("origin") or None, code, stay=stay)
             except WafBlocked:
                 raise
             except Exception as e:  # noqa
                 log("estado error", r, e)
-                cells, completos = None, 0
+                est = None
             done[0] += 1
             progress(f"Comprobando salidas {done[0]}/{len(rows)}")
-            if cells is None:
-                return None
-            disp = sum(1 for c in cells if c[0] == "disponible")
-            return dict(fechas=len(cells), disponibles=disp, espera=len(cells) - disp, completos=completos,
-                        primera=min((c[1] for c in cells), default=None), ultima=max((c[1] for c in cells), default=None))
+            return est
 
         with cf.ThreadPoolExecutor(WORKERS) as ex:
             return dict(estados=list(ex.map(one, rows)))
@@ -1395,13 +1453,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         return False
 
-    def _json(self, obj, code=200):
-        b = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    def _send(self, b, ctype, code=200, cache=None):
+        import gzip
+        if len(b) > 1400 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+            b = gzip.compress(b, 6)
+            enc = True
+        else:
+            enc = False
         self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", ctype)
+        if enc:
+            self.send_header("Content-Encoding", "gzip")
+        if cache:
+            self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
         self.wfile.write(b)
+
+    def _json(self, obj, code=200):
+        self._send(json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), "application/json; charset=utf-8", code)
 
     def do_GET(self):
         if self.path == "/ping":
@@ -1410,13 +1480,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         if not self._authed():
             return
-        if self.path == "/" or self.path.startswith("/index"):
-            b = HTML.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            self.wfile.write(b)
+        if self.path == "/" or self.path.startswith("/index") or self.path.startswith("/?"):
+            ui = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.html")
+            try:
+                with open(ui, encoding="utf-8") as f:
+                    page = f.read()
+            except OSError:
+                page = HTML
+            self._send(page.encode("utf-8"), "text/html; charset=utf-8", cache="no-cache")
+        elif self.path == "/api/all":
+            self._json(dict(ts=PRE["ts"], rows=all_rows()))
         elif self.path == "/api/meta":
             for s in SITES.values():
                 try:
