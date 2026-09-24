@@ -251,7 +251,13 @@ function cascade(){
   fill('zona',lab(cnt('zona',r=>({v:r.zone,l:r.zone})).sort((a,b)=>a.l.localeCompare(b.l))),'Todas las zonas');
   fill('prov',lab(cnt('prov',r=>r.province?{v:r.province,l:r.province}:null).sort((a,b)=>a.l.localeCompare(b.l))),'Todas');
   fill('localidad',lab(cnt('localidad',r=>({v:r.loc,l:`${r.placeName} (${r.province||r.zone})`})).sort((a,b)=>a.l.localeCompare(b.l))),'Todas las localidades');
-  fill('hotel',lab(cnt('hotel',r=>r.hotels.map(h=>({v:h,l:h}))).sort((a,b)=>a.l.localeCompare(b.l))),'Cualquier hotel');
+  {const withP=lab(cnt('hotel',r=>(r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels).map(h=>({v:h,l:h})))).sort((a,b)=>a.l.localeCompare(b.l));
+   const have=new Set(withP.map(o=>o.v)),geo=t=>(!f.site||t.site===f.site)&&(!f.zona||t.zone===f.zona)&&(!f.prov||t.province===f.prov)&&(!f.localidad||NL(t.name)+'|'+NL(t.province||t.zone)===f.localidad);
+   const tmap=new Map(META.towns.map(t=>[t.site+'|'+t.code,t]));
+   const rest=[...new Set(META.hotels.filter(h=>!have.has(h.name)&&h.towns.some(c=>{const t=tmap.get(h.site+'|'+c);return t&&geo(t);})).map(h=>h.name).concat(U.filter(r=>geo({site:r.site,zone:r.zone,province:r.province,name:r.placeName})).flatMap(r=>r.hotels).filter(h=>!have.has(h))))].sort();
+   const e=$('#hotel'),v=e.value;
+   e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}">${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
+   e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
   const og=cnt('origen',r=>({v:r.on,l:r.originName==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':r.originName}));
   fill('origen',lab(og.sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l))),'Todos los orígenes');
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
@@ -281,7 +287,9 @@ function render(){
   const totD=G.reduce((a,g)=>a+g.disp,0), minP=Math.min(...G.map(g=>g.desde));
   $('#kpis').innerHTML=`<div class="kpi"><b>${G.length}</b><span>localidades</span></div><div class="kpi"><b>${rows.length}</b><span>origen × destino</span></div><div class="kpi"><b style="color:var(--ok)">${totD}</b><span>salidas disponibles</span></div>${isFinite(minP)?`<div class="kpi"><b>${eur(minP)}</b><span>precio desde</span></div>`:''}`;
   $('#rsub').textContent=f.mes?`en ${MES[+f.mes.slice(5)-1]} ${f.mes.slice(0,4)}`:'';
-  if(!G.length){$('#list').innerHTML=`<div class="empty"><div class="e">🧳</div><p><b>No hay viajes con plaza con estos filtros.</b></p><p>Prueba a quitar algún filtro${f.incwl?'':' o marca «Incluir las que solo tienen lista de espera»'}.</p></div>`;return;}
+  if(!G.length){const wl=f.hotel&&!f.incwl&&U.some(r=>r.trips&&tripsOk(r,f).some(t=>t[1]===2));
+    $('#list').innerHTML=f.hotel?`<div class="empty"><div class="e">🏨</div><p><b>${esc(f.hotel)} no tiene plazas disponibles ahora mismo${f.mes||f.stay||f.pmax?' con estos filtros':''}.</b></p><p>${wl?'Sí hay fechas en <b>lista de espera</b>: marca «Incluir las que solo tienen lista de espera».':'Todas sus salidas conocidas están completas. Vuelve a mirar tras el próximo scrapeo.'}</p><p><span class="hl" id="hinfo">Ver ficha del hotel</span></p></div>`:`<div class="empty"><div class="e">🧳</div><p><b>No hay viajes con plaza con estos filtros.</b></p><p>Prueba a quitar algún filtro${f.incwl?'':' o marca «Incluir las que solo tienen lista de espera»'}.</p></div>`;
+    if($('#hinfo'))$('#hinfo').onclick=()=>openHotel(null,null,f.hotel);return;}
   $('#list').innerHTML=G.slice(0,SHOWN).map(g=>groupHTML(g,f)).join('')+(G.length>SHOWN?`<button class="sec more" id="more">Ver ${Math.min(30,G.length-SHOWN)} localidades más (${G.length-SHOWN} restantes)</button>`:'');
   bindList();
   if($('#more'))$('#more').onclick=()=>{SHOWN+=30;render();};

@@ -783,7 +783,7 @@ def build_snapshot(path, progress=log):
     import gzip
     precache_once()
     fechas = {}
-    keys = [k for k, v in PRE["data"].items() if v and v.get("disponibles")]
+    keys = [k for k, v in PRE["data"].items() if v and v.get("fechas")]
     progress(f"snapshot: leyendo fechas de {len(keys)} combinaciones")
     done = [0]
 
