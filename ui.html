@@ -28,7 +28,7 @@ a{color:inherit}
 .sug .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;min-width:70px;font-weight:700}
 main{max-width:1280px;margin:-56px auto 0;padding:0 16px 80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:var(--sh)}
-.filters{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.filters{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 label.l{display:block;font-size:10.5px;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
 select,input.f{width:100%;padding:10px 32px 10px 11px;border:1px solid var(--line);border-radius:10px;font-size:14.5px;background:var(--card);color:var(--ink);font-family:inherit;appearance:none;-webkit-appearance:none}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='1.8' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
@@ -76,11 +76,11 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .mh h1{font-size:19px;margin:0;font-weight:800;letter-spacing:-.01em}.mh small{display:block;opacity:.88;font-size:12.5px}.mh .sp{margin-left:auto}
 .mh .x{background:rgba(255,255,255,.2);border-radius:50%;width:36px;height:36px;padding:0;font-size:17px;flex:none}.mh .x:hover{background:rgba(255,255,255,.32)}
 .mh .hb{background:rgba(255,255,255,.18);color:#fff;border:0}.mh .hb:hover{background:rgba(255,255,255,.3)}
-.mpad{padding:18px}.mgrid{display:grid;grid-template-columns:minmax(290px,1fr) 2fr;gap:18px}
-.cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;max-height:62vh;overflow:auto;padding-right:4px}
-.mon{border:1px solid var(--line);border-radius:12px;padding:9px}.mon h4{margin:0 0 6px;font-size:13px;text-align:center;text-transform:capitalize;font-weight:700}
-.dow,.days{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}.dow span{font-size:10px;color:var(--mut);text-align:center;font-weight:700}
-.d{aspect-ratio:1;display:grid;place-items:center;font-size:12px;border-radius:7px;color:var(--mut);opacity:.55}
+.mpad{padding:18px}.mgrid{display:grid;grid-template-columns:minmax(290px,1fr) 1.6fr;gap:18px;align-items:start}
+.cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px}
+.mon{border:1px solid var(--line);border-radius:9px;padding:5px 5px 6px}.mon h4{margin:0 0 3px;font-size:11px;text-align:center;text-transform:capitalize;font-weight:700}
+.dow,.days{display:grid;grid-template-columns:repeat(7,1fr);gap:1px}.dow span{font-size:8.5px;color:var(--mut);text-align:center;font-weight:700}
+.d{height:16px;display:grid;place-items:center;font-size:9.5px;border-radius:4px;color:var(--mut);opacity:.45}
 .d.ok,.d.warn,.d.bad{opacity:1}.d.ok{background:var(--okbg);color:var(--ok);font-weight:800;cursor:pointer}.d.warn{background:var(--warnbg);color:var(--warn);font-weight:700;cursor:pointer}.d.bad{background:var(--badbg);color:var(--bad);text-decoration:line-through}
 .d.ok:hover,.d.warn:hover{outline:2px solid var(--acc2)}.d.sel{outline:2px solid var(--acc);outline-offset:-1px}
 .leg{display:flex;gap:12px;font-size:12px;color:var(--mut);margin:10px 0 0;flex-wrap:wrap}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:4px}
@@ -95,7 +95,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.thumbs img{width:62px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;opacity:.6;border:2px solid transparent}.thumbs img.on,.thumbs img:hover{opacity:1;border-color:var(--acc2)}
 .svc{columns:2;font-size:14px;padding-left:18px;margin:6px 0 0}.mfoot{padding:0 18px 18px;display:flex;gap:10px;flex-wrap:wrap}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;z-index:80;display:none}
-@media(max-width:1000px){.filters{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:1000px){.filters{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:820px){.mgrid,.hbody{grid-template-columns:1fr}.svc{columns:1}
  .rw{grid-template-columns:1fr auto;gap:4px 10px}.rw.hd{display:none}.rw>*:nth-child(2),.rw>*:nth-child(3),.rw>*:nth-child(4),.rw>*:nth-child(5){grid-column:1/-1}.rw>.go{grid-row:1;grid-column:2}
  .trip{grid-template-columns:1fr auto}.trip .mid{grid-column:1/-1;grid-row:2}}
@@ -122,10 +122,6 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
   <div><label class="l">Localidad</label><select id="localidad"></select></div>
   <div><label class="l">Hotel</label><select id="hotel"></select></div>
   <div><label class="l">Origen (salida)</label><select id="origen"></select></div>
-  <div><label class="l">Mes de salida</label><select id="mes"></select></div>
-  <div><label class="l">Estancia</label><select id="stay"></select></div>
-  <div><label class="l">Precio máximo</label><select id="pmax"><option value="">Sin límite</option><option>250</option><option>300</option><option>350</option><option>400</option><option>450</option><option>500</option><option>600</option><option>800</option></select></div>
-  <div><label class="l">Web</label><select id="site"><option value="">Las dos</option><option value="turismosocial">Turismo Social</option><option value="mundicolor">Mundicolor (islas)</option></select></div>
   <div><label class="l">Ordenar por</label><select id="orden"><option value="fecha">Salida más próxima</option><option value="precio">Precio más bajo</option><option value="plazas">Más fechas con plaza</option><option value="az">Localidad A-Z</option></select></div>
  </div>
  <div class="bar2">
@@ -178,7 +174,7 @@ const fmtShort=d=>{if(!d)return'';const[y,m,dd]=d.split('-');return `${+dd} ${ME
 const eur=n=>n==null?'':n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
 const today=new Date().toISOString().slice(0,10);
 const siteTag=s=>`<span class="site ${s==='mundicolor'?'mc':'ts'}">${s==='mundicolor'?'Mundicolor':'Turismo Social'}</span>`;
-const FIL=['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'];
+const FIL=['zona','prov','localidad','hotel','origen','orden'];
 let META=null, U=[], LIVE=false, SHOWN=30;
 
 /* ---------- utilidades red ---------- */
@@ -192,7 +188,7 @@ async function runJob(path,body){
 function busy(b){document.body.classList.toggle('busy',b);if(!b){$('#stxt').textContent='';$('#pbar').style.display='none';$('#pbar i').style.width='0';}}
 function showErr(m){$('#errbox').innerHTML=m?`<div class="err">⚠️ ${esc(m)}</div>`:'';}
 function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',2600);}
-const sel=id=>$('#'+id).value;
+const sel=id=>{const e=$('#'+id);return e?e.value:'';};
 
 /* ---------- universo de datos ---------- */
 function buildUniverse(all){
@@ -241,10 +237,10 @@ function matches(r,f,ignore){
   if(r.estado){const a=avail(r,f,ignore);if(!(a.d.length||(f.incwl&&a.w.length)))return false;}
   else if(ignore!=='mes'&&f.mes&&LIVE===false)return false;
   return true;}
-function curF(){const f=Object.fromEntries(FIL.map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
+function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
 /* ---------- desplegables en cascada ---------- */
-function fill(id,opts,first){const e=$('#'+id),v=e.value;e.innerHTML=`<option value="">${first}</option>`+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');e.value=opts.some(o=>o.v===v)?v:'';e.classList.toggle('set',!!e.value);}
+function fill(id,opts,first){const e=$('#'+id);if(!e)return;const v=e.value;e.innerHTML=`<option value="">${first}</option>`+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');e.value=opts.some(o=>o.v===v)?v:'';e.classList.toggle('set',!!e.value);}
 function cascade(){
   const f=curF(), cnt=(ign,fn)=>{const m=new Map();for(const r of U)if(matches(r,f,ign)){const k=fn(r);if(k==null)continue;for(const x of[].concat(k)){const c=m.get(x.v)||{...x,n:0};c.n++;m.set(x.v,c);}}return [...m.values()];};
   const lab=(a)=>a.map(o=>({v:o.v,l:o.l+(o.n&&!LIVE?`  (${o.n})`:'')}));
@@ -263,7 +259,6 @@ function cascade(){
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
   fill('stay',lab(cnt('stay',r=>(r.stayCodes||[]).map(k=>({v:k,l:META.stays[k]||k})))).sort((a,b)=>Object.keys(META.stays).indexOf(a.v)-Object.keys(META.stays).indexOf(b.v)),'Todas');
-  ['site','pmax'].forEach(id=>$('#'+id).classList.toggle('set',!!sel(id)));
   renderActive();
 }
 function renderActive(){
