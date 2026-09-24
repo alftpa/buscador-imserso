@@ -38,8 +38,8 @@ CACHE_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Suppor
 INDEX_TTL = 7 * 24 * 3600      # catálogo de hoteles
 CONFIG_TTL = 24 * 3600         # opciones por origen
 RESULT_TTL = 2 * 86400          # calendarios y búsquedas de fechas
-WORKERS = int(os.environ.get("WORKERS", 3))          # hilos simultáneos contra la web
-MIN_GAP = float(os.environ.get("MIN_GAP", 0.35))     # segundos mínimos entre peticiones a la misma web
+WORKERS = int(os.environ.get("WORKERS", 2))          # hilos simultáneos contra la web
+MIN_GAP = float(os.environ.get("MIN_GAP", 0.6))     # segundos mínimos entre peticiones a la misma web
 WAF_WAIT = int(os.environ.get("WAF_WAIT", 0))        # >0: ante bloqueo, esperar y reintentar (scrapeo programado)
 
 

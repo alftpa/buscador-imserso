@@ -194,22 +194,21 @@ const sel=id=>{const e=$('#'+id);return e?e.value:'';};
 function buildUniverse(all){
   const towns=new Map(META.towns.map(t=>[t.site+'|'+t.code,t]));
   const hotelsBy=new Map();META.hotels.forEach(h=>h.towns.forEach(c=>{const k=h.site+'|'+c;(hotelsBy.get(k)||hotelsBy.set(k,[]).get(k)).push(h.name);}));
-  if(all&&all.length){
-    return all.map(r=>({...r,key:r.site+'|'+(r.origin||'_')+'|'+r.place,loc:NL(r.placeName)+'|'+NL(r.province||r.zone),on:ON(r.originName),
-      hotels:[...new Set([...(r.hotels||[]),...(hotelsBy.get(r.site+'|'+r.place)||[])])]}));
-  }
-  const out=[];  // modo en directo: a partir de la oferta por origen
+  const pre=new Map((all||[]).map(r=>[r.site+'|'+(r.origin||'_')+'|'+r.place,r]));
+  const out=[];
   for(const s in META.offers)for(const ok in META.offers[s]){
     const by={};for(const x of META.offers[s][ok]){const [tc,st]=x.split('|');(by[tc]=by[tc]||new Set()).add(st);}
     const oname=ok==='_'?'SIN TRANSPORTE':(META.origins.find(o=>o.site===s&&o.code===ok)||{}).name||ok;
-    for(const tc in by){const t=towns.get(s+'|'+tc);if(!t)continue;const sc=[...by[tc]];
+    for(const tc in by){const t=towns.get(s+'|'+tc);if(!t)continue;const sc=[...by[tc]],key=s+'|'+ok+'|'+tc,p=pre.get(key);
       out.push({site:s,origin:ok==='_'?null:ok,originName:oname,place:tc,placeName:t.name,province:t.province,zone:t.zone,subType:t.subType,
-        stayCodes:sc,stays:sc.map(k=>META.stays[k]||k),estado:null,desde:null,hotels:hotelsBy.get(s+'|'+tc)||[],
-        key:s+'|'+ok+'|'+tc,loc:NL(t.name)+'|'+NL(t.province||t.zone),on:ON(oname)});}
+        stayCodes:sc,stays:sc.map(k=>META.stays[k]||k),estado:p?p.estado:null,desde:p?p.desde:null,trips:p?p.trips:null,
+        hotels:[...new Set([...(p&&p.hotels||[]),...(hotelsBy.get(s+'|'+tc)||[])])],
+        key,loc:NL(t.name)+'|'+NL(t.province||t.zone),on:ON(oname)});}
   }
+  const seen=new Set(out.map(r=>r.key));   // precargadas que ya no están en la oferta de hoy
+  for(const [key,r] of pre)if(!seen.has(key))out.push({...r,key,loc:NL(r.placeName)+'|'+NL(r.province||r.zone),on:ON(r.originName)});
   return out;
 }
-
 /* ---------- filtrado ---------- */
 /* Viajes de una combinación que cumplen los filtros (ign = filtro a ignorar, para los desplegables) */
 function tripsOk(r,f,ign){
@@ -234,8 +233,10 @@ function matches(r,f,ignore){
   if(ignore!=='stay'&&f.stay&&!(r.stayCodes||[]).includes(f.stay))return false;
 
   if(f.q){const q=N(f.q);if(!N([r.placeName,r.province,r.zone,r.originName,...r.hotels].join(' ')).includes(q))return false;}
-  if(r.estado){const a=avail(r,f,ignore);if(!(a.d.length||(f.incwl&&a.w.length)))return false;}
-  else if(ignore!=='mes'&&f.mes&&LIVE===false)return false;
+  if(r.estado){
+    if(!r.trips&&r.estado.fechas&&ignore!=='hotel'&&f.hotel)return r.hotels.includes(f.hotel);   // falta detalle: pendiente de comprobar
+    const a=avail(r,f,ignore);if(!(a.d.length||(f.incwl&&a.w.length)))return false;}
+
   return true;}
 function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
@@ -270,10 +271,29 @@ function renderActive(){
 }
 
 /* ---------- resultados ---------- */
-function update(){cascade();saveState();SHOWN=30;if(LIVE){renderLiveHint();return;}render();}
+function update(){cascade();saveState();SHOWN=30;render();}
 function nextDate(r,f){const md=avail(r,f);const all=md.d.concat(f.incwl?md.w:[]).filter(Boolean).sort();return all[0]||null;}
+let checking=false;
+async function checkPending(list){
+  if(checking)return;checking=true;busy(true);
+  try{const pend=list.filter(r=>!r.estado);
+    if(pend.length){const e=await runJob('/api/estado',{rows:pend.map(r=>({site:r.site,origin:r.origin,place:r.place}))});e.estados.forEach((st,i)=>{pend[i].estado=st||{fechas:0,disponibles:0,espera:0,completos:0,disp:[],wl:[]};});}
+    const f=curF();
+    if(f.hotel){const need=list.filter(r=>r.estado&&r.estado.fechas&&!r.trips).slice(0,40);let i=0;
+      for(const r of need){i++;$('#stxt').textContent=`Leyendo viajes ${i}/${need.length}…`;
+        const j=await runJob('/api/fechas',{site:r.site,origin:r.origin,place:r.place});
+        r.trips=j.rows.filter(y=>/Disponible|espera/.test(y.status)).map(y=>[y.date,y.status==='Disponible'?1:2,y.stay||'',(y.hotels||[]).map(h=>h.name),y.priceNum]);
+        r.hotels=[...new Set(r.hotels.concat(r.trips.flatMap(t=>t[3])))];
+        const pd=r.trips.filter(t=>t[1]===1&&t[4]!=null).map(t=>t[4]);r.desde=pd.length?Math.min(...pd):null;}}
+  }catch(e){showErr(e.message)}finally{checking=false;busy(false);}
+  cascade();render();
+}
 function render(){
-  const f=curF(), rows=U.filter(r=>matches(r,f)&&(r.estado||!LIVE));
+  const f=curF(), cand=U.filter(r=>matches(r,f));
+  const pending=cand.filter(r=>!r.estado||(f.hotel&&r.estado.fechas&&!r.trips));
+  const rows=cand.filter(r=>r.estado&&!(f.hotel&&!r.trips&&r.estado.fechas));
+  const auto=pending.length&&pending.length<=120&&!checking;
+  const pendHTML=pending.length?`<div class="msg" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">⏳ ${pending.length} combinaciones aún no están en los datos precargados${auto?' · comprobándolas en directo…':'.'} ${!auto&&!checking?`<button class="mini" id="chk">Comprobar ahora</button><span class="sm">(acota con zona, localidad u origen para ir más rápido)</span>`:''}</div>`:'';
   const groups=new Map();
   for(const r of rows){const g=groups.get(r.loc)||{loc:r.loc,x:r,list:[],sites:new Set(),hotels:new Set()};g.list.push(r);g.sites.add(r.site);r.hotels.forEach(h=>g.hotels.add(h));groups.set(r.loc,g);}
   const G=[...groups.values()];
@@ -282,11 +302,13 @@ function render(){
   const totD=G.reduce((a,g)=>a+g.disp,0), minP=Math.min(...G.map(g=>g.desde));
   $('#kpis').innerHTML=`<div class="kpi"><b>${G.length}</b><span>localidades</span></div><div class="kpi"><b>${rows.length}</b><span>origen × destino</span></div><div class="kpi"><b style="color:var(--ok)">${totD}</b><span>salidas disponibles</span></div>${isFinite(minP)?`<div class="kpi"><b>${eur(minP)}</b><span>precio desde</span></div>`:''}`;
   $('#rsub').textContent=f.mes?`en ${MES[+f.mes.slice(5)-1]} ${f.mes.slice(0,4)}`:'';
+  if(auto)setTimeout(()=>checkPending(pending),0);
+  if(!G.length&&pending.length){$('#list').innerHTML=pendHTML+'<div class="skel"></div><div class="skel"></div>';if($('#chk'))$('#chk').onclick=()=>checkPending(pending);return;}
   if(!G.length){const wl=f.hotel&&!f.incwl&&U.some(r=>r.trips&&tripsOk(r,f).some(t=>t[1]===2));
     $('#list').innerHTML=f.hotel?`<div class="empty"><div class="e">🏨</div><p><b>${esc(f.hotel)} no tiene plazas disponibles ahora mismo${f.mes||f.stay||f.pmax?' con estos filtros':''}.</b></p><p>${wl?'Sí hay fechas en <b>lista de espera</b>: marca «Incluir las que solo tienen lista de espera».':'Todas sus salidas conocidas están completas. Vuelve a mirar tras el próximo scrapeo.'}</p><p><span class="hl" id="hinfo">Ver ficha del hotel</span></p></div>`:`<div class="empty"><div class="e">🧳</div><p><b>No hay viajes con plaza con estos filtros.</b></p><p>Prueba a quitar algún filtro${f.incwl?'':' o marca «Incluir las que solo tienen lista de espera»'}.</p></div>`;
     if($('#hinfo'))$('#hinfo').onclick=()=>openHotel(null,null,f.hotel);return;}
-  $('#list').innerHTML=G.slice(0,SHOWN).map(g=>groupHTML(g,f)).join('')+(G.length>SHOWN?`<button class="sec more" id="more">Ver ${Math.min(30,G.length-SHOWN)} localidades más (${G.length-SHOWN} restantes)</button>`:'');
-  bindList();
+  $('#list').innerHTML=pendHTML+G.slice(0,SHOWN).map(g=>groupHTML(g,f)).join('')+(G.length>SHOWN?`<button class="sec more" id="more">Ver ${Math.min(30,G.length-SHOWN)} localidades más (${G.length-SHOWN} restantes)</button>`:'');
+  bindList();if($('#chk'))$('#chk').onclick=()=>checkPending(pending);
   if($('#more'))$('#more').onclick=()=>{SHOWN+=30;render();};
 }
 function groupHTML(g,f){
@@ -437,7 +459,7 @@ async function boot(){
     META=await api('/api/meta');
     let all=[];try{const a=await api('/api/all');all=a.rows||[];}catch(e){}
     LIVE=!all.length;U=buildUniverse(all);
-    $('#buscar').style.display=LIVE?'':'none';
+    $('#buscar').style.display='none';
     const P=META.pre||{};
     $('#dot').classList.toggle('ok',!LIVE);
     $('#dott').textContent=LIVE?(META.warm?'Datos en directo (precarga pendiente)':'Leyendo orígenes…'):`Datos del ${new Date(P.ts*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}`;
