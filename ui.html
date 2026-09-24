@@ -25,6 +25,7 @@ a{color:inherit}
 .q .clr{position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:0;font-size:18px;cursor:pointer;color:var(--mut);display:none}
 .sug{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--sh);z-index:30;max-height:360px;overflow:auto;display:none}
 .sug div{padding:10px 14px;cursor:pointer;display:flex;gap:10px;align-items:center;color:var(--ink)}.sug div:hover,.sug div.on{background:var(--soft)}
+.quick{max-width:1280px;margin:12px auto 0;display:flex;gap:7px;flex-wrap:wrap}.quick button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);color:#fff;padding:6px 12px;font-size:13px;border-radius:20px;font-weight:600}.quick button:hover,.quick button.on{background:#fff;color:var(--acc)}
 .sug .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;min-width:70px;font-weight:700}
 main{max-width:1280px;margin:-56px auto 0;padding:0 16px 80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:var(--sh)}
@@ -61,7 +62,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .orig b{font-size:14.5px}.mut{color:var(--mut)}.sm{font-size:12px}
 .site{font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;color:#fff;white-space:nowrap;letter-spacing:.02em}.site.ts{background:var(--ts)}.site.mc{background:var(--mc)}
 .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;background:var(--soft);border:1px solid var(--line);margin:1px 3px 1px 0;white-space:nowrap;font-weight:500}
-.tag.p{background:color-mix(in srgb,var(--acc2) 12%,var(--card));color:var(--acc);border-color:transparent}
+.tag.p{background:color-mix(in srgb,var(--acc2) 16%,var(--card));color:color-mix(in srgb,var(--acc2) 70%,var(--ink));border-color:transparent;font-weight:600}
 .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:700;margin:1px 2px 1px 0;white-space:nowrap}
 .pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}
 .price{font-weight:800;font-size:16px}.price small{display:block;font-weight:500;font-size:11px;color:var(--mut)}
@@ -101,7 +102,11 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
  .trip{grid-template-columns:1fr auto}.trip .mid{grid-column:1/-1;grid-row:2}}
 .ftog{display:none;width:100%;margin-bottom:12px}
 @media(max-width:820px){.ftog{display:block}.card.fc .filters{display:none}.card.fc.open .filters{display:grid}}
-@media(max-width:560px){.filters{grid-template-columns:1fr 1fr}.hero h1{font-size:20px}.hero .right{margin-left:0}}
+@media(max-width:560px){.hero{padding:14px 14px 70px}.hero small{display:none}.logo{width:40px;height:40px;font-size:22px}.hero .in{gap:10px}
+ .mh{flex-wrap:wrap;padding:12px 14px}.mh>div:first-child{flex:1 1 calc(100% - 50px);order:1}.mh .x{order:2}.mh .sp{display:none}.mh a,.mh #refresh2{order:3}.mh h1{font-size:16px}.mh small{font-size:11.5px}
+ .mpad .kpis{grid-template-columns:repeat(3,1fr);gap:6px}.mpad .kpi{padding:7px 8px}.mpad .kpi b{font-size:16px}.mpad .kpi span{font-size:9px;letter-spacing:.03em}
+ .kpis{grid-template-columns:repeat(2,1fr)}.kpi b{font-size:18px}.mpad{padding:12px}
+.filters{grid-template-columns:1fr 1fr}.hero h1{font-size:20px}.hero .right{margin-left:0}}
 </style></head><body>
 <div class="hero"><div class="in">
  <div class="logo">🏖️</div><div><h1>Buscador IMSERSO</h1><small>Turismo Social (península) · Mundicolor (Baleares y Canarias)</small></div>
@@ -112,6 +117,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
  </div>
 </div>
 <div class="q"><span class="ico">🔎</span><input id="q" placeholder="Busca una localidad, isla, provincia u hotel… (p. ej. Benidorm, Tenerife, Gran Bali)" autocomplete="off"><button class="clr" id="qclr" aria-label="Borrar">✕</button><div class="sug" id="sug"></div></div>
+<div class="quick" id="quick"></div>
 </div>
 <main>
 <div class="card fc" id="fcard">
@@ -260,7 +266,13 @@ function cascade(){
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
   fill('stay',lab(cnt('stay',r=>(r.stayCodes||[]).map(k=>({v:k,l:META.stays[k]||k})))).sort((a,b)=>Object.keys(META.stays).indexOf(a.v)-Object.keys(META.stays).indexOf(b.v)),'Todas');
-  renderActive();
+  renderActive();renderQuick();
+}
+function renderQuick(){
+  const zs=new Map();for(const r of U)if(r.estado&&avail(r,{...curF(),zona:'',prov:'',localidad:''}).d.length)zs.set(r.zone,(zs.get(r.zone)||0)+1);
+  const top=[...zs.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(x=>x[0]).sort();
+  $('#quick').innerHTML=top.map(z=>`<button data-z="${esc(z)}" class="${sel('zona')===z?'on':''}">${esc(z.toLowerCase().split(' ').map((w,i)=>i&&['la','de','del','y','las','los'].includes(w)?w:w.charAt(0).toUpperCase()+w.slice(1)).join(' '))}</button>`).join('');
+  $$('#quick button').forEach(b=>b.onclick=()=>{const z=b.dataset.z;$('#zona').value=sel('zona')===z?'':z;$('#prov').value='';$('#localidad').value='';update();});
 }
 function renderActive(){
   const f=curF(),L={zona:'Zona',prov:'Provincia',localidad:'Localidad',hotel:'Hotel',origen:'Origen',mes:'Mes',stay:'Estancia',pmax:'Máx.',site:'Web'};
@@ -300,7 +312,7 @@ function render(){
   for(const g of G){g.next=g.list.map(r=>nextDate(r,f)).filter(Boolean).sort()[0]||'9999';g.desde=Math.min(...g.list.map(r=>avail(r,f).desde??Infinity));g.disp=g.list.reduce((a,r)=>a+avail(r,f).d.length,0);}
   const o=f.orden;G.sort((a,b)=>o==='precio'?(a.desde-b.desde)||a.next.localeCompare(b.next):o==='plazas'?b.disp-a.disp:o==='az'?a.x.placeName.localeCompare(b.x.placeName):a.next.localeCompare(b.next)||a.desde-b.desde);
   const totD=G.reduce((a,g)=>a+g.disp,0), minP=Math.min(...G.map(g=>g.desde));
-  $('#kpis').innerHTML=`<div class="kpi"><b>${G.length}</b><span>localidades</span></div><div class="kpi"><b>${rows.length}</b><span>origen × destino</span></div><div class="kpi"><b style="color:var(--ok)">${totD}</b><span>salidas disponibles</span></div>${isFinite(minP)?`<div class="kpi"><b>${eur(minP)}</b><span>precio desde</span></div>`:''}`;
+  $('#kpis').innerHTML=`<div class="kpi"><b>${G.length}</b><span>localidades</span></div><div class="kpi"><b>${rows.length}</b><span>rutas con plaza</span></div><div class="kpi"><b style="color:var(--ok)">${totD}</b><span>salidas disponibles</span></div>${isFinite(minP)?`<div class="kpi"><b>${eur(minP)}</b><span>precio desde</span></div>`:''}`;
   $('#rsub').textContent=f.mes?`en ${MES[+f.mes.slice(5)-1]} ${f.mes.slice(0,4)}`:'';
   if(auto)setTimeout(()=>checkPending(pending),0);
   if(!G.length&&pending.length){$('#list').innerHTML=pendHTML+'<div class="skel"></div><div class="skel"></div>';if($('#chk'))$('#chk').onclick=()=>checkPending(pending);return;}
@@ -410,7 +422,7 @@ async function openHotel(site,code,name){
     $$('.thumbs img').forEach(t=>t.onclick=()=>{$('#big').src=t.dataset.u;$$('.thumbs img').forEach(x=>x.classList.toggle('on',x===t));});
     const q=encodeURIComponent(name.replace(/\s*\([^)]*\)\s*$/,'')+' '+($('#msub').textContent.split(' · ')[0]||''));
     $('#mfoot').innerHTML=`<a href="${esc(r.maps||('https://www.google.com/maps/search/?api=1&query='+q))}" target="_blank" rel="noopener"><button class="sec mini">🗺 Ver en el mapa</button></a><a href="https://www.google.com/search?q=${q}+opiniones" target="_blank" rel="noopener"><button class="sec mini">⭐ Opiniones</button></a><button class="mini" id="hfilter">Ver solo viajes a este hotel</button>`;
-    $('#hfilter').onclick=()=>{closeAll();$('#hotel').value=name;update();window.scrollTo({top:$('#res').offsetTop-10,behavior:'smooth'});};
+    $('#hfilter').onclick=()=>{closeAll();const o=[...$('#hotel').options].find(x=>x.value===name);if(o&&o.disabled){$('#incwl').checked=true;cascade();}$('#hotel').value=name;if($('#hotel').value!==name){['zona','prov','localidad','origen'].forEach(i=>$('#'+i).value='');cascade();$('#hotel').value=name;}if($('#hotel').value!==name)toast('Este hotel no tiene plazas ni lista de espera ahora mismo');update();window.scrollTo({top:$('#res').offsetTop-10,behavior:'smooth'});};
   }catch(e){$('#mbody').innerHTML=`<p class="mut">No se ha podido cargar la ficha: ${esc(e.message)}</p>`;}
 }
 function closeAll(){$('#ov').classList.remove('open');$('#ov2').classList.remove('open');if(location.hash.startsWith('#v='))history.replaceState(null,'',location.pathname+location.search);}
