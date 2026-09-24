@@ -253,8 +253,8 @@ function cascade(){
    const tmap=new Map(META.towns.map(t=>[t.site+'|'+t.code,t]));
    const rest=[...new Set(META.hotels.filter(h=>!have.has(h.name)&&h.towns.some(c=>{const t=tmap.get(h.site+'|'+c);return t&&geo(t);})).map(h=>h.name).concat(U.filter(r=>geo({site:r.site,zone:r.zone,province:r.province,name:r.placeName})).flatMap(r=>r.hotels).filter(h=>!have.has(h))))].sort();
    const e=$('#hotel'),v=e.value;
-   e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}">${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
-   e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
+   e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}" disabled>${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
+   e.value=[...e.options].some(o=>o.value===v&&!o.disabled)?v:'';e.classList.toggle('set',!!e.value);}
   const og=cnt('origen',r=>({v:r.on,l:r.originName==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':r.originName}));
   fill('origen',lab(og.sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l))),'Todos los orígenes');
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
@@ -292,7 +292,7 @@ function render(){
   const f=curF(), cand=U.filter(r=>matches(r,f));
   const pending=cand.filter(r=>!r.estado||(f.hotel&&r.estado.fechas&&!r.trips));
   const rows=cand.filter(r=>r.estado&&!(f.hotel&&!r.trips&&r.estado.fechas));
-  const auto=pending.length&&pending.length<=120&&!checking;
+  const auto=pending.length&&pending.length<=120&&!checking&&!window.NOCHECK;
   const pendHTML=pending.length?`<div class="msg" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">⏳ ${pending.length} combinaciones aún no están en los datos precargados${auto?' · comprobándolas en directo…':'.'} ${!auto&&!checking?`<button class="mini" id="chk">Comprobar ahora</button><span class="sm">(acota con zona, localidad u origen para ir más rápido)</span>`:''}</div>`:'';
   const groups=new Map();
   for(const r of rows){const g=groups.get(r.loc)||{loc:r.loc,x:r,list:[],sites:new Set(),hotels:new Set()};g.list.push(r);g.sites.add(r.site);r.hotels.forEach(h=>g.hotels.add(h));groups.set(r.loc,g);}
