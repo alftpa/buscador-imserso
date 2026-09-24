@@ -215,13 +215,19 @@ function buildUniverse(all){
 }
 
 /* ---------- filtrado ---------- */
-function hotelEst(r,h){const b=(r.byHotel||{})[h];return b?{disp:b.disp,wl:b.wl,fechas:b.disp.length+b.wl.length}:{disp:[],wl:[],fechas:0};}
-function monthDates(r,mes,hotel){hotel=hotel===undefined?sel('hotel'):hotel;const e=hotel&&r.estado?hotelEst(r,hotel):r.estado;if(!e)return null;
-  const d=(e.disp||[]).filter(x=>x>=today&&(!mes||x.startsWith(mes))), w=(e.wl||[]).filter(x=>x>=today&&(!mes||x.startsWith(mes)));
-  if(!e.disp&&!e.wl){ // snapshot antiguo sin lista de fechas
-    const inR=!mes||(e.primera&&e.ultima&&e.primera.slice(0,7)<=mes&&e.ultima.slice(0,7)>=mes);
-    return {d:inR?Array(e.disponibles).fill(e.primera):[],w:inR?Array(e.espera).fill(e.primera):[]};}
-  return {d,w};}
+/* Viajes de una combinación que cumplen los filtros (ign = filtro a ignorar, para los desplegables) */
+function tripsOk(r,f,ign){
+  return (r.trips||[]).filter(([d,st,stay,hs,p])=>d>=today&&(ign==='mes'||!f.mes||d.startsWith(f.mes))&&(ign==='stay'||!f.stay||stay===f.stay)
+    &&(ign==='hotel'||!f.hotel||hs.includes(f.hotel))&&(ign==='pmax'||!f.pmax||p==null||p<=+f.pmax));}
+function avail(r,f,ign){   // {d:[fechas disponibles], w:[fechas lista espera], desde, exact}
+  if(r.trips){const t=tripsOk(r,f,ign),d=new Set(),w=new Set();let desde=null;
+    for(const[x,st,,,p]of t){if(st===1){d.add(x);if(p!=null&&(desde==null||p<desde))desde=p;}else w.add(x);}
+    return {d:[...d].sort(),w:[...w].filter(x=>!d.has(x)).sort(),desde,exact:true};}
+  const e=r.estado;if(!e)return {d:[],w:[],desde:null,exact:false};
+  // sin detalle de viajes (solo lista de espera o dato antiguo): solo vale si no hay filtros de hotel/estancia/precio
+  if((ign!=='hotel'&&f.hotel)||(ign!=='stay'&&f.stay)||(ign!=='pmax'&&f.pmax))return {d:[],w:[],desde:null,exact:false};
+  const m=ign==='mes'?'':f.mes,in_=x=>x>=today&&(!m||x.startsWith(m));
+  return {d:(e.disp||[]).filter(in_),w:(e.wl||[]).filter(in_),desde:r.desde,exact:!!e.disp};}
 function matches(r,f,ignore){
   if(f.site&&r.site!==f.site)return false;
   if(ignore!=='zona'&&f.zona&&r.zone!==f.zona)return false;
@@ -230,13 +236,11 @@ function matches(r,f,ignore){
   if(ignore!=='hotel'&&f.hotel&&!r.hotels.includes(f.hotel))return false;
   if(ignore!=='origen'&&f.origen&&r.on!==f.origen)return false;
   if(ignore!=='stay'&&f.stay&&!(r.stayCodes||[]).includes(f.stay))return false;
-  if(ignore!=='pmax'&&f.pmax){const p=priceOf(r,f);if(p!=null&&p>+f.pmax)return false;}
+
   if(f.q){const q=N(f.q);if(!N([r.placeName,r.province,r.zone,r.originName,...r.hotels].join(' ')).includes(q))return false;}
-  if(r.estado){const md=monthDates(r,ignore==='mes'?'':f.mes,ignore==='hotel'?'':f.hotel);if(!(md.d.length||(f.incwl&&md.w.length)))return false;}
+  if(r.estado){const a=avail(r,f,ignore);if(!(a.d.length||(f.incwl&&a.w.length)))return false;}
   else if(ignore!=='mes'&&f.mes&&LIVE===false)return false;
   return true;}
-function priceOf(r,f){if(f.hotel&&ignoreHotel!==true){const b=(r.byHotel||{})[f.hotel];if(b)return b.desde;}return r.desde;}
-let ignoreHotel=false;
 function curF(){const f=Object.fromEntries(FIL.map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
 /* ---------- desplegables en cascada ---------- */
@@ -250,7 +254,7 @@ function cascade(){
   fill('hotel',lab(cnt('hotel',r=>r.hotels.map(h=>({v:h,l:h}))).sort((a,b)=>a.l.localeCompare(b.l))),'Cualquier hotel');
   const og=cnt('origen',r=>({v:r.on,l:r.originName==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':r.originName}));
   fill('origen',lab(og.sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l))),'Todos los orígenes');
-  const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=monthDates(r,'',f.hotel);for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
+  const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
   fill('stay',lab(cnt('stay',r=>(r.stayCodes||[]).map(k=>({v:k,l:META.stays[k]||k})))).sort((a,b)=>Object.keys(META.stays).indexOf(a.v)-Object.keys(META.stays).indexOf(b.v)),'Todas');
   ['site','pmax'].forEach(id=>$('#'+id).classList.toggle('set',!!sel(id)));
@@ -266,13 +270,13 @@ function renderActive(){
 
 /* ---------- resultados ---------- */
 function update(){cascade();saveState();SHOWN=30;if(LIVE){renderLiveHint();return;}render();}
-function nextDate(r,f){const md=monthDates(r,f.mes,f.hotel);const all=md.d.concat(f.incwl?md.w:[]).filter(Boolean).sort();return all[0]||null;}
+function nextDate(r,f){const md=avail(r,f);const all=md.d.concat(f.incwl?md.w:[]).filter(Boolean).sort();return all[0]||null;}
 function render(){
   const f=curF(), rows=U.filter(r=>matches(r,f)&&(r.estado||!LIVE));
   const groups=new Map();
   for(const r of rows){const g=groups.get(r.loc)||{loc:r.loc,x:r,list:[],sites:new Set(),hotels:new Set()};g.list.push(r);g.sites.add(r.site);r.hotels.forEach(h=>g.hotels.add(h));groups.set(r.loc,g);}
   const G=[...groups.values()];
-  for(const g of G){g.next=g.list.map(r=>nextDate(r,f)).filter(Boolean).sort()[0]||'9999';g.desde=Math.min(...g.list.map(r=>priceOf(r,f)??Infinity));g.disp=g.list.reduce((a,r)=>a+monthDates(r,f.mes,f.hotel).d.length,0);}
+  for(const g of G){g.next=g.list.map(r=>nextDate(r,f)).filter(Boolean).sort()[0]||'9999';g.desde=Math.min(...g.list.map(r=>avail(r,f).desde??Infinity));g.disp=g.list.reduce((a,r)=>a+avail(r,f).d.length,0);}
   const o=f.orden;G.sort((a,b)=>o==='precio'?(a.desde-b.desde)||a.next.localeCompare(b.next):o==='plazas'?b.disp-a.disp:o==='az'?a.x.placeName.localeCompare(b.x.placeName):a.next.localeCompare(b.next)||a.desde-b.desde);
   const totD=G.reduce((a,g)=>a+g.disp,0), minP=Math.min(...G.map(g=>g.desde));
   $('#kpis').innerHTML=`<div class="kpi"><b>${G.length}</b><span>localidades</span></div><div class="kpi"><b>${rows.length}</b><span>origen × destino</span></div><div class="kpi"><b style="color:var(--ok)">${totD}</b><span>salidas disponibles</span></div>${isFinite(minP)?`<div class="kpi"><b>${eur(minP)}</b><span>precio desde</span></div>`:''}`;
@@ -283,7 +287,7 @@ function render(){
   if($('#more'))$('#more').onclick=()=>{SHOWN+=30;render();};
 }
 function groupHTML(g,f){
-  const hs=[...g.hotels].filter(h=>!f.hotel||h===f.hotel).sort();
+  const hs=f.hotel?[f.hotel]:[...new Set(g.list.flatMap(r=>r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels))].sort();
   const list=g.list.slice().sort((a,b)=>(a.on==='SIN TRANSPORTE')-(b.on==='SIN TRANSPORTE')||(nextDate(a,f)||'9').localeCompare(nextDate(b,f)||'9'));
   return `<div class="grp"><div class="gh">${[...g.sites].map(siteTag).join(' ')}<span class="nm">${esc(g.x.placeName)}</span><span class="wh">${esc(g.x.province)}${g.x.zone&&g.x.zone!==g.x.province?' · '+esc(g.x.zone):''}</span>
    <span class="best">${isFinite(g.desde)?`desde<b>${eur(g.desde)}</b>`:''}</span></div>
@@ -291,7 +295,7 @@ function groupHTML(g,f){
    <div class="rw hd"><span>Origen</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
    ${list.map(r=>rowHTML(r,f)).join('')}</div>`;}
 function rowHTML(r,f){
-  const md=r.estado?monthDates(r,f.mes,f.hotel):{d:[],w:[]}, nd=nextDate(r,f), pr=priceOf(r,f);
+  const md=r.estado?avail(r,f):{d:[],w:[]}, nd=nextDate(r,f), pr=md.desde;
   const pl=r.estado?`${md.d.length?`<span class="pill ok">● ${md.d.length} disponible${md.d.length>1?'s':''}</span>`:''}${md.w.length?`<span class="pill warn">◐ ${md.w.length} en espera</span>`:''}`:'<span class="mut sm">—</span>';
   return `<div class="rw" data-k="${esc(r.key)}"><div class="orig"><b>${esc(r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName)}</b>${r.on==='SIN TRANSPORTE'?'<div class="mut sm">voy por mi cuenta</div>':''}</div>
    <div><span class="tag p">${esc(r.subType)}</span>${r.site==='mundicolor'?'':''}</div><div>${r.stays.map(s=>`<span class="tag">${esc(s)}</span>`).join('')}</div><div>${pl}</div>
@@ -331,8 +335,10 @@ async function openDates(r,force){
     const res=await runJob('/api/fechas',{site:r.site,origin:r.origin,place:r.place,stay:sel('stay'),hotel:sel('hotel'),force:!!force});
     if(cur2!==r)return;
     rows2=res.rows;days2=res.days||[];
-    if(sel('hotel')){const by={};rows2.forEach(y=>{const st=stC(y.status)==='st-ok'?'disponible':'lista-espera';if(by[y.date]!=='disponible')by[y.date]=st;});
-      days2=days2.filter(([d,s])=>s==='completo'&&!by[d]).concat(Object.entries(by));}
+
+    const pm=+sel('pmax')||0;if(pm)rows2=rows2.filter(y=>y.priceNum==null||y.priceNum<=pm);
+    if(sel('hotel')||pm){const by={};rows2.forEach(y=>{const st=stC(y.status)==='st-ok'?'disponible':stC(y.status)==='st-warn'?'lista-espera':'completo';if(by[y.date]!=='disponible'&&!(by[y.date]==='lista-espera'&&st==='completo'))by[y.date]=st;});
+      days2=(res.days||[]).filter(([d,s])=>s==='completo'&&!by[d]).concat(Object.entries(by));}
     const inM=y=>!mes2||y.date.startsWith(mes2);
     const ok=rows2.filter(y=>stC(y.status)==='st-ok'&&inM(y)),wl=rows2.filter(y=>stC(y.status)==='st-warn'&&inM(y));
     const pr=ok.map(y=>y.priceNum).filter(n=>n!=null);
@@ -341,7 +347,7 @@ async function openDates(r,force){
     $('#chips').innerHTML=(mes2?`<span class="chip on" id="mchip" title="Quitar filtro de mes">📅 ${MES[+mes2.slice(5)-1]} ${mes2.slice(0,4)} ✕</span>`:'')+[['','Todo',ok.length+wl.length],['st-ok','Disponible',ok.length],['st-warn','Lista de espera',wl.length]].map(([k,l,n])=>`<span class="chip ${filt2===k?'on':''}" data-f="${k}">${l} (${n})</span>`).join('');
     $$('#chips .chip[data-f]').forEach(c=>c.onclick=()=>{filt2=c.dataset.f;$$('#chips .chip[data-f]').forEach(d=>d.classList.toggle('on',d===c));renderTrips();});
     if($('#mchip'))$('#mchip').onclick=()=>{mes2='';$('#mchip').remove();renderTrips();};
-    const note=[sel('hotel')?`Solo el hotel «${esc(sel('hotel'))}».`:'',sel('stay')?`Solo estancias de ${esc(META.stays[sel('stay')])}.`:'',mes2?`Salidas de ${MES[+mes2.slice(5)-1]}.`:'',res.snapshot?`Datos del ${new Date(res.snapshot*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · «↻ Actualizar» consulta ahora.`:'Consultado ahora mismo.'].filter(Boolean).join(' ');
+    const note=[sel('hotel')?`Solo el hotel «${esc(sel('hotel'))}».`:'',sel('stay')?`Solo estancias de ${esc(META.stays[sel('stay')])}.`:'',mes2?`Salidas de ${MES[+mes2.slice(5)-1]}.`:'',sel('pmax')?`Hasta ${sel('pmax')} €.`:'',res.snapshot?`Datos del ${new Date(res.snapshot*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · «↻ Actualizar» consulta ahora.`:'Consultado ahora mismo.'].filter(Boolean).join(' ');
     $('#msg2').innerHTML=`<div class="mut sm" style="margin-bottom:10px">${note}</div>`;
     renderCal();renderTrips();
     const m=sel('mes');if(m){const el=$(`.mon[data-m="${m}"]`);el&&el.scrollIntoView({block:'nearest'});}

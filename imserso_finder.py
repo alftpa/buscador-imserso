@@ -731,7 +731,12 @@ def enrich_from_fechas():
                     e["desde"] = r["priceNum"]
         byHotel = {n: dict(disp=sorted(e["disp"]), wl=sorted(e["wl"] - e["disp"]), desde=e["desde"], stays=sorted(e["stays"]))
                    for n, e in by.items() if n}
-        EXTRA[k] = dict(desde=min(pd) if pd else None, desdeTodo=min(pw) if pw else None, hotels=hs, byHotel=byHotel)
+        trips = []
+        for r in rows:
+            st = 1 if r.get("status") == "Disponible" else 2 if r.get("status") == "Lista de espera" else 0
+            if st:
+                trips.append([r["date"], st, r.get("stay") or "", [h.get("name") for h in (r.get("hotels") or []) if h.get("name")], r.get("priceNum")])
+        EXTRA[k] = dict(desde=min(pd) if pd else None, desdeTodo=min(pw) if pw else None, hotels=hs, byHotel=byHotel, trips=trips)
 
 
 def all_rows():
@@ -752,7 +757,7 @@ def all_rows():
                         place=tc, placeName=t["name"], province=t["provinceName"], zone=t["destinationName"],
                         subType=SUBTYPES.get(t["subType"], t["subType"]), stays=[STAYS.get(k, k) for k in stays],
                         stayCodes=stays, estado=est, desde=ex.get("desde"), desdeTodo=ex.get("desdeTodo"),
-                        hotels=ex.get("hotels") or [], byHotel=ex.get("byHotel") or {}))
+                        hotels=ex.get("hotels") or [], trips=ex.get("trips")))
     return out
 
 
