@@ -56,6 +56,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .gh .nm{font-weight:800;font-size:17px;letter-spacing:-.01em}.gh .wh{color:var(--mut);font-size:13px}.gh .best{margin-left:auto;text-align:right;font-size:12px;color:var(--mut)}.gh .best b{display:block;font-size:17px;color:var(--ink)}
 .hot{padding:8px 15px;border-bottom:1px solid var(--line);font-size:13px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:var(--mut);white-space:nowrap}.gh .lbl{background:var(--card);border:1px solid var(--line);padding:3px 8px;border-radius:6px}.hot .lbl{margin-right:4px}.mob{display:none}
+.full{padding:9px 15px;font-size:12.5px;color:var(--mut);background:var(--soft);border-top:1px solid var(--line)}.full span{color:var(--ink);opacity:.75}
 .hchip{padding:3px 9px;border-radius:20px;background:var(--soft);border:1px solid var(--line);cursor:pointer;font-weight:500;font-size:12.5px}.hchip:hover{border-color:var(--acc2);color:var(--acc)}
 .rw{display:grid;grid-template-columns:1.3fr 1fr 1.2fr 1.9fr 1.2fr .9fr auto;gap:10px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer}
 .rw:last-child{border-bottom:0}.rw:hover{background:color-mix(in srgb,var(--acc2) 6%,var(--card))}
@@ -245,6 +246,15 @@ function matches(r,f,ignore){
     const a=avail(r,f,ignore);if(!(a.d.length||(f.incwl&&a.w.length)))return false;}
 
   return true;}
+function geoMatch(r,f,ignore){
+  if(f.site&&r.site!==f.site)return false;
+  if(ignore!=='zona'&&f.zona&&r.zone!==f.zona)return false;
+  if(ignore!=='prov'&&f.prov&&r.province!==f.prov)return false;
+  if(ignore!=='localidad'&&f.localidad&&r.loc!==f.localidad)return false;
+  if(ignore!=='hotel'&&f.hotel&&!r.hotels.includes(f.hotel))return false;
+  if(ignore!=='origen'&&f.origen&&r.on!==f.origen)return false;
+  return true;}
+const oLabel=o=>o==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':o;
 function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
 /* ---------- desplegables en cascada ---------- */
@@ -262,8 +272,13 @@ function cascade(){
    const e=$('#hotel'),v=e.value;
    e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}" disabled>${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
    e.value=[...e.options].some(o=>o.value===v&&!o.disabled)?v:'';e.classList.toggle('set',!!e.value);}
-  const og=cnt('origen',r=>({v:r.on,l:r.originName==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':r.originName}));
-  fill('origen',lab(og.sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l))),'Todos los orígenes');
+  {const og=cnt('origen',r=>({v:r.on,l:oLabel(r.originName)})).sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l));
+   const have=new Set(og.map(o=>o.v)),rest=new Map();
+   for(const r of U)if(!have.has(r.on)&&geoMatch(r,f,'origen'))rest.set(r.on,oLabel(r.originName));
+   const e=$('#origen'),v=e.value;
+   e.innerHTML='<option value="">Todos los orígenes</option>'+(og.length?`<optgroup label="Con plazas (${og.length})">${og.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}${o.n&&!LIVE?`  (${o.n})`:''}</option>`).join('')}</optgroup>`:'')
+     +(rest.size?`<optgroup label="Sin plazas ahora mismo (${rest.size})">${[...rest].sort((a,b)=>a[1].localeCompare(b[1])).map(([k,l])=>`<option value="${esc(k)}" disabled>${esc(l)} · completo</option>`).join('')}</optgroup>`:'');
+   e.value=[...e.options].some(o=>o.value===v&&!o.disabled)?v:'';e.classList.toggle('set',!!e.value);}
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
   fill('stay',lab(cnt('stay',r=>(r.stayCodes||[]).map(k=>({v:k,l:META.stays[k]||k})))).sort((a,b)=>Object.keys(META.stays).indexOf(a.v)-Object.keys(META.stays).indexOf(b.v)),'Todas');
@@ -276,7 +291,7 @@ function renderQuick(){
   $$('#quick button').forEach(b=>b.onclick=()=>{const z=b.dataset.z;$('#zona').value=sel('zona')===z?'':z;$('#prov').value='';$('#localidad').value='';update();});
 }
 function renderActive(){
-  const f=curF(),L={zona:'Zona',prov:'Provincia',localidad:'Localidad',hotel:'Hotel',origen:'Origen',mes:'Mes',stay:'Estancia',pmax:'Máx.',site:'Web'};
+  const f=curF(),L={zona:'Zona destino',prov:'Provincia',localidad:'Destino',hotel:'Hotel',origen:'Origen',mes:'Mes',stay:'Estancia',pmax:'Máx.',site:'Web'};
   const a=Object.keys(L).filter(k=>f[k]).map(k=>{const o=$('#'+k).selectedOptions[0];return `<span class="chipA">${L[k]}: ${esc((o?o.textContent:f[k]).replace(/\s+\(\d+\)$/,''))}${k==='pmax'?' €':''}<b data-k="${k}" title="Quitar">✕</b></span>`;});
   if(f.q)a.unshift(`<span class="chipA">Texto: «${esc(f.q)}»<b data-k="q">✕</b></span>`);
   $('#active').innerHTML=a.join('');$('#fcount').textContent=a.length?`(${a.length} activos)`:'';
@@ -331,7 +346,11 @@ function groupHTML(g,f){
    <span class="best">${isFinite(g.desde)?`desde<b>${eur(g.desde)}</b>`:''}</span></div>
    ${hs.length?`<div class="hot"><span class="lbl">🏨 Hoteles en el destino</span>${hs.slice(0,8).map(h=>`<span class="hchip" data-h="${esc(h)}" data-s="${esc(g.x.site)}">${esc(h.replace(/\s*\([^)]*\)\s*$/,''))}</span>`).join('')}${hs.length>8?`<span class="mut sm">+${hs.length-8} más</span>`:''}</div>`:''}
    <div class="rw hd"><span>🚌 Sales desde (origen)</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
-   ${list.map(r=>rowHTML(r,f)).join('')}</div>`;}
+   ${list.map(r=>rowHTML(r,f)).join('')}${fullOrigins(g,f)}</div>`;}
+function fullOrigins(g,f){
+  const shown=new Set(g.list.map(r=>r.on));
+  const full=[...new Set(U.filter(r=>r.loc===g.loc&&geoMatch(r,f)&&!shown.has(r.on)&&r.estado).map(r=>r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName))].sort();
+  return full.length?`<div class="full">🔒 Y ${full.length} ${full.length>1?'orígenes':'origen'} más con todo completo${f.incwl?'':' o solo lista de espera'}: <span>${full.map(esc).join(' · ')}</span></div>`:'';}
 function rowHTML(r,f){
   const md=r.estado?avail(r,f):{d:[],w:[]}, nd=nextDate(r,f), pr=md.desde;
   const pl=r.estado?`${md.d.length?`<span class="pill ok">● ${md.d.length} disponible${md.d.length>1?'s':''}</span>`:''}${md.w.length?`<span class="pill warn">◐ ${md.w.length} en espera</span>`:''}`:'<span class="mut sm">—</span>';
