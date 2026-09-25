@@ -37,6 +37,7 @@ SIN_TRANSPORTE = "SIN TRANSPORTE"
 CACHE_DIR = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "ImsersoFinder")
 INDEX_TTL = 7 * 24 * 3600      # catálogo de hoteles
 CONFIG_TTL = 24 * 3600         # opciones por origen
+REFRESH_MAX = 60               # rutas máximas por pulsación de «Actualizar datos»
 RESULT_TTL = 2 * 86400          # calendarios y búsquedas de fechas
 WORKERS = int(os.environ.get("WORKERS", 2))          # hilos simultáneos contra la web
 MIN_GAP = float(os.environ.get("MIN_GAP", 0.6))     # segundos mínimos entre peticiones a la misma web
@@ -713,6 +714,11 @@ EXTRA = {}   # key -> {desde, desdeWl, hotels}
 
 def enrich_from_fechas():
     for k, d in SNAP["fechas"].items():
+        enrich_one(k, d)
+
+
+def enrich_one(k, d):
+    if True:
         rows = d.get("rows") or []
         pd = [r["priceNum"] for r in rows if r.get("priceNum") and r.get("status") == "Disponible"]
         pw = [r["priceNum"] for r in rows if r.get("priceNum")]
@@ -739,11 +745,31 @@ def enrich_from_fechas():
         EXTRA[k] = dict(desde=min(pd) if pd else None, desdeTodo=min(pw) if pw else None, hotels=hs, byHotel=byHotel, trips=trips)
 
 
+def store_route(site_key, origin, place, r):
+    """Guarda en memoria el resultado en directo de una ruta: sustituye al del scrapeo para todos los usuarios."""
+    k = f"{site_key}|{origin or '_'}|{place}"
+    days = r.get("days") or []
+    disp = sorted(d for d, st in days if st == "disponible")
+    wl = sorted(d for d, st in days if st == "lista-espera")
+    both = disp + wl
+    est = dict(fechas=len(both), disponibles=len(disp), espera=len(wl), completos=r.get("completos", 0),
+               primera=min(both, default=None), ultima=max(both, default=None), disp=disp, wl=wl, ts=time.time())
+    PRE["data"][k] = est
+    if both:
+        SNAP["fechas"][k] = dict(rows=r["rows"], completos=r["completos"], fechas=r["fechas"], days=days, ts=time.time())
+        enrich_one(k, SNAP["fechas"][k])
+    else:
+        SNAP["fechas"].pop(k, None)
+        EXTRA.pop(k, None)
+    ex = EXTRA.get(k, {})
+    return dict(key=k, estado=est, desde=ex.get("desde"), trips=ex.get("trips"), hotels=ex.get("hotels") or [])
+
+
 def all_rows():
     """Listado completo precalculado (todas las combinaciones con su disponibilidad)."""
     out = []
     for key, est in PRE["data"].items():
-        if not est or not est.get("fechas"):
+        if not est:
             continue
         sk, o, tc = key.split("|", 2)
         site = SITES.get(sk)
@@ -1050,7 +1076,7 @@ def from_snapshot(p):
     if p.get("hotel"):
         n = norm(p["hotel"])
         rows = [r for r in rows if any(n in norm(h["name"]) for h in r.get("hotels") or [dict(name=r["hotel"])])]
-    return dict(rows=rows, completos=d["completos"], fechas=d["fechas"], days=d["days"], snapshot=SNAP["ts"])
+    return dict(rows=rows, completos=d["completos"], fechas=d["fechas"], days=d["days"], snapshot=d.get("ts") or SNAP["ts"])
 
 
 def job_fechas(p):
@@ -1060,8 +1086,47 @@ def job_fechas(p):
         JOBS[jid] = {"progress": "", "done": True, "result": hit, "error": None}
         return jid
     site = SITES[p["site"]]
-    return start_job(lambda progress: dates_for(site, p.get("origin") or None, p["place"], p.get("stay") or None,
-                                                p.get("hotel") or None, progress, force=bool(p.get("force"))))
+    origin = p.get("origin") or None
+
+    def run(progress):
+        full = dates_for(site, origin, p["place"], None, None, progress, force=bool(p.get("force")))
+        route = store_route(site.key, origin, p["place"], full)
+        hit = from_snapshot(dict(p, force=False))
+        res = hit or dict(rows=[], completos=full["completos"], fechas=0, days=full["days"])
+        res.update(snapshot=time.time(), route=route)
+        return res
+
+    return start_job(run)
+
+
+def job_refresh(p):
+    """Botón «Actualizar datos»: vuelve a consultar en directo las rutas que se están viendo."""
+    rows = (p.get("rows") or [])[:REFRESH_MAX]
+
+    def run(progress):
+        out, done, blocked = [], [0], [None]
+
+        def one(r):
+            if blocked[0]:
+                return None
+            try:
+                site = SITES[r["site"]]
+                full = dates_for(site, r.get("origin") or None, r["place"], force=True)
+                return store_route(site.key, r.get("origin") or None, r["place"], full)
+            except WafBlocked as e:
+                blocked[0] = str(e)
+            except Exception as e:  # noqa
+                log("refresh fallo", r, e)
+            finally:
+                done[0] += 1
+                progress(f"Actualizando rutas {done[0]}/{len(rows)}")
+            return None
+
+        with cf.ThreadPoolExecutor(WORKERS) as ex:
+            out = [x for x in ex.map(one, rows) if x]
+        return dict(routes=out, blocked=blocked[0], ts=time.time())
+
+    return start_job(run)
 
 
 def job_listado(p):
@@ -1519,6 +1584,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json({"job": job_buscar(p)})
             elif self.path == "/api/fechas":
                 self._json({"job": job_fechas(p)})
+            elif self.path == "/api/refresh":
+                self._json({"job": job_refresh(p)})
             elif self.path == "/api/estado":
                 self._json({"job": job_estado(p)})
             elif self.path == "/api/reindex":

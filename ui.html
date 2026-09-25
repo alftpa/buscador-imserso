@@ -97,6 +97,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .gal img.big{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:12px;background:var(--soft)}
 .thumbs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.thumbs img{width:62px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;opacity:.6;border:2px solid transparent}.thumbs img.on,.thumbs img:hover{opacity:1;border-color:var(--acc2)}
 .svc{columns:2;font-size:14px;padding-left:18px;margin:6px 0 0}.mfoot{padding:0 18px 18px;display:flex;gap:10px;flex-wrap:wrap}
+.foot{text-align:center;margin:18px 0 0}.foot a{color:var(--mut)}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--card);padding:10px 16px;border-radius:10px;font-size:14px;z-index:80;display:none}
 @media(max-width:1000px){.filters{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:820px){.mob{display:inline}.mgrid,.hbody{grid-template-columns:1fr}.svc{columns:1}
@@ -114,7 +115,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
  <div class="logo">🏖️</div><div><h1>Buscador IMSERSO</h1><small>Turismo Social (península) · Mundicolor (Baleares y Canarias)</small></div>
  <div class="right">
   <span class="pillh" id="stpill"><span class="dot" id="dot"></span><span id="dott">Cargando…</span></span>
-  <a class="pillh" href="https://github.com/alftpa/buscador-imserso/actions/workflows/snapshot.yml" target="_blank" rel="noopener" title="Abre GitHub: pulsa «Run workflow». En ~1 h todos los datos estarán actualizados.">⟳ Relanzar scrapeo</a>
+  <button class="pillh" id="refreshAll" title="Vuelve a consultar ahora mismo las rutas de los filtros que tienes puestos">↻ Actualizar datos</button>
   <button class="pillh" id="theme" title="Cambiar tema">🌓</button>
  </div>
 </div>
@@ -147,6 +148,8 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
  <div class="kpis" id="kpis"></div>
  <div id="list"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
 </div>
+<p class="foot mut sm">Los datos completos se actualizan solos cada 2 días. «↻ Actualizar datos» consulta al momento las rutas de tus filtros.
+ · <a href="https://github.com/alftpa/buscador-imserso/actions/workflows/snapshot.yml" target="_blank" rel="noopener">Scrapeo completo (administrador)</a></p>
 </main>
 
 <div class="ov" id="ov2"><div class="md wide" role="dialog" aria-modal="true" aria-labelledby="t2">
@@ -258,7 +261,9 @@ const oLabel=o=>o==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':o;
 function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
 /* ---------- desplegables en cascada ---------- */
-function fill(id,opts,first){const e=$('#'+id);if(!e)return;const v=e.value;e.innerHTML=`<option value="">${first}</option>`+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');e.value=opts.some(o=>o.v===v)?v:'';e.classList.toggle('set',!!e.value);}
+function fill(id,opts,first){const e=$('#'+id);if(!e)return;const v=e.value,vl=(e.selectedOptions[0]||{}).textContent||v;
+  if(v&&!opts.some(o=>o.v===v))opts=opts.concat([{v,l:vl.replace(/\s+\(\d+\)$/,'').replace(/ · sin plazas ahora$/,'')+' · sin plazas ahora'}]);   // lo elegido nunca desaparece
+  e.innerHTML=`<option value="">${first}</option>`+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');e.value=v;e.classList.toggle('set',!!e.value);}
 function cascade(){
   const f=curF(), cnt=(ign,fn)=>{const m=new Map();for(const r of U)if(matches(r,f,ign)){const k=fn(r);if(k==null)continue;for(const x of[].concat(k)){const c=m.get(x.v)||{...x,n:0};c.n++;m.set(x.v,c);}}return [...m.values()];};
   const lab=(a)=>a.map(o=>({v:o.v,l:o.l+(o.n&&!LIVE?`  (${o.n})`:'')}));
@@ -271,14 +276,14 @@ function cascade(){
    const rest=[...new Set(META.hotels.filter(h=>!have.has(h.name)&&h.towns.some(c=>{const t=tmap.get(h.site+'|'+c);return t&&geo(t);})).map(h=>h.name).concat(U.filter(r=>geo({site:r.site,zone:r.zone,province:r.province,name:r.placeName})).flatMap(r=>r.hotels).filter(h=>!have.has(h))))].sort();
    const e=$('#hotel'),v=e.value;
    e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}" disabled>${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
-   e.value=[...e.options].some(o=>o.value===v&&!o.disabled)?v:'';e.classList.toggle('set',!!e.value);}
+   e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
   {const og=cnt('origen',r=>({v:r.on,l:oLabel(r.originName)})).sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l));
    const have=new Set(og.map(o=>o.v)),rest=new Map();
    for(const r of U)if(!have.has(r.on)&&geoMatch(r,f,'origen'))rest.set(r.on,oLabel(r.originName));
    const e=$('#origen'),v=e.value;
    e.innerHTML='<option value="">Todos los orígenes</option>'+(og.length?`<optgroup label="Con plazas (${og.length})">${og.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}${o.n&&!LIVE?`  (${o.n})`:''}</option>`).join('')}</optgroup>`:'')
      +(rest.size?`<optgroup label="Sin plazas ahora mismo (${rest.size})">${[...rest].sort((a,b)=>a[1].localeCompare(b[1])).map(([k,l])=>`<option value="${esc(k)}" disabled>${esc(l)} · completo</option>`).join('')}</optgroup>`:'');
-   e.value=[...e.options].some(o=>o.value===v&&!o.disabled)?v:'';e.classList.toggle('set',!!e.value);}
+   e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
   fill('stay',lab(cnt('stay',r=>(r.stayCodes||[]).map(k=>({v:k,l:META.stays[k]||k})))).sort((a,b)=>Object.keys(META.stays).indexOf(a.v)-Object.keys(META.stays).indexOf(b.v)),'Todas');
@@ -378,6 +383,24 @@ async function buscarLive(){
     render();
   }catch(e){showErr(e.message)}finally{busy(false)}}
 
+function applyRoute(rt){
+  const r=U.find(x=>x.key===rt.key);if(!r)return;
+  r.estado=rt.estado;r.trips=rt.trips||null;r.desde=rt.desde;
+  if(rt.hotels&&rt.hotels.length)r.hotels=[...new Set(r.hotels.concat(rt.hotels))];}
+async function refreshAll(){
+  const f=curF(),cand=U.filter(r=>geoMatch(r,f)&&(!f.q||N([r.placeName,r.province,r.zone,r.originName,...r.hotels].join(' ')).includes(N(f.q))));
+  if(!cand.length){toast('No hay rutas con estos filtros');return;}
+  if(cand.length>60){showErr(`Con estos filtros hay ${cand.length} rutas. Para actualizar en directo elige antes un destino, una provincia o un origen (máximo 60 rutas cada vez).`);window.scrollTo({top:0,behavior:'smooth'});return;}
+  showErr('');busy(true);$('#refreshAll').disabled=true;
+  try{const res=await runJob('/api/refresh',{rows:cand.map(r=>({site:r.site,origin:r.origin,place:r.place}))});
+    res.routes.forEach(applyRoute);cascade();render();
+    if(res.blocked)showErr('La web del IMSERSO ha limitado las consultas: se han actualizado '+res.routes.length+' de '+cand.length+' rutas. Espera unos minutos y vuelve a pulsar.');
+    else toast(`Actualizadas ${res.routes.length} rutas con los datos de ahora mismo`);
+    const P=new Date();$('#dott').textContent='Actualizado a las '+P.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){showErr(e.message)}finally{busy(false);$('#refreshAll').disabled=false;}
+}
+$('#refreshAll').onclick=refreshAll;
+
 /* ---------- modal de fechas ---------- */
 let cur2=null,rows2=[],days2=[],filt2='st-ok',day2='',mes2='';
 const stC=s=>{s=(s||'').toLowerCase();return s.includes('disponible')?'st-ok':s.includes('espera')?'st-warn':'st-bad';};
@@ -392,6 +415,7 @@ async function openDates(r,force){
     const res=await runJob('/api/fechas',{site:r.site,origin:r.origin,place:r.place,stay:sel('stay'),hotel:sel('hotel'),force:!!force});
     if(cur2!==r)return;
     rows2=res.rows;days2=res.days||[];
+    if(res.route){applyRoute(res.route);if(force){cascade();render();}}
 
     const pm=+sel('pmax')||0;if(pm)rows2=rows2.filter(y=>y.priceNum==null||y.priceNum<=pm);
     if(sel('hotel')||pm){const by={};rows2.forEach(y=>{const st=stC(y.status)==='st-ok'?'disponible':stC(y.status)==='st-warn'?'lista-espera':'completo';if(by[y.date]!=='disponible'&&!(by[y.date]==='lista-espera'&&st==='completo'))by[y.date]=st;});
