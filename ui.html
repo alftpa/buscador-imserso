@@ -56,7 +56,8 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
 .gh .nm{font-weight:800;font-size:17px;letter-spacing:-.01em}.gh .wh{color:var(--mut);font-size:13px}.gh .best{margin-left:auto;text-align:right;font-size:12px;color:var(--mut)}.gh .best b{display:block;font-size:17px;color:var(--ink)}
 .hot{padding:8px 15px;border-bottom:1px solid var(--line);font-size:13px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:var(--mut);white-space:nowrap}.gh .lbl{background:var(--card);border:1px solid var(--line);padding:3px 8px;border-radius:6px}.hot .lbl{margin-right:4px}.mob{display:none}
-.full{padding:9px 15px;font-size:12.5px;color:var(--mut);background:var(--soft);border-top:1px solid var(--line)}.full span{color:var(--ink);opacity:.75}
+.full{padding:9px 15px;font-size:12.5px;color:var(--mut);background:var(--soft);border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.rw.off{opacity:.72;background:var(--soft)}.rw.off:hover{opacity:1}
 .hchip{padding:3px 9px;border-radius:20px;background:var(--soft);border:1px solid var(--line);cursor:pointer;font-weight:500;font-size:12.5px}.hchip:hover{border-color:var(--acc2);color:var(--acc)}
 .rw{display:grid;grid-template-columns:1.3fr 1fr 1.2fr 1.9fr 1.2fr .9fr auto;gap:10px;align-items:center;padding:11px 15px;border-bottom:1px solid var(--line);cursor:pointer}
 .rw:last-child{border-bottom:0}.rw:hover{background:color-mix(in srgb,var(--acc2) 6%,var(--card))}
@@ -341,7 +342,7 @@ function render(){
     $('#list').innerHTML=f.hotel?`<div class="empty"><div class="e">🏨</div><p><b>${esc(f.hotel)} no tiene plazas disponibles ahora mismo${f.mes||f.stay||f.pmax?' con estos filtros':''}.</b></p><p>${wl?'Sí hay fechas en <b>lista de espera</b>: marca «Incluir las que solo tienen lista de espera».':'Todas sus salidas conocidas están completas. Vuelve a mirar tras el próximo scrapeo.'}</p><p><span class="hl" id="hinfo">Ver ficha del hotel</span></p></div>`:`<div class="empty"><div class="e">🧳</div><p><b>No hay viajes con plaza con estos filtros.</b></p><p>Prueba a quitar algún filtro${f.incwl?'':' o marca «Incluir las que solo tienen lista de espera»'}.</p></div>`;
     if($('#hinfo'))$('#hinfo').onclick=()=>openHotel(null,null,f.hotel);return;}
   $('#list').innerHTML=pendHTML+G.slice(0,SHOWN).map(g=>groupHTML(g,f)).join('')+(G.length>SHOWN?`<button class="sec more" id="more">Ver ${Math.min(30,G.length-SHOWN)} localidades más (${G.length-SHOWN} restantes)</button>`:'');
-  bindList();if($('#chk'))$('#chk').onclick=()=>checkPending(pending);
+  bindList();$$('#list .fobtn').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const g=b.dataset.g;openFull.has(g)?openFull.delete(g):openFull.add(g);render();});if($('#chk'))$('#chk').onclick=()=>checkPending(pending);
   if($('#more'))$('#more').onclick=()=>{SHOWN+=30;render();};
 }
 function groupHTML(g,f){
@@ -352,10 +353,23 @@ function groupHTML(g,f){
    ${hs.length?`<div class="hot"><span class="lbl">🏨 Hoteles en el destino</span>${hs.slice(0,8).map(h=>`<span class="hchip" data-h="${esc(h)}" data-s="${esc(g.x.site)}">${esc(h.replace(/\s*\([^)]*\)\s*$/,''))}</span>`).join('')}${hs.length>8?`<span class="mut sm">+${hs.length-8} más</span>`:''}</div>`:''}
    <div class="rw hd"><span>🚌 Sales desde (origen)</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
    ${list.map(r=>rowHTML(r,f)).join('')}${fullOrigins(g,f)}</div>`;}
+const openFull=new Set();
 function fullOrigins(g,f){
-  const shown=new Set(g.list.map(r=>r.on));
-  const full=[...new Set(U.filter(r=>r.loc===g.loc&&geoMatch(r,f)&&!shown.has(r.on)&&r.estado).map(r=>r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName))].sort();
-  return full.length?`<div class="full">🔒 Y ${full.length} ${full.length>1?'orígenes':'origen'} más con todo completo${f.incwl?'':' o solo lista de espera'}: <span>${full.map(esc).join(' · ')}</span></div>`:'';}
+  const shown=new Set(g.list.map(r=>r.key));
+  const rest=U.filter(r=>r.loc===g.loc&&geoMatch(r,f)&&!shown.has(r.key)&&r.estado)
+    .sort((a,b)=>(a.on==='SIN TRANSPORTE')-(b.on==='SIN TRANSPORTE')||a.originName.localeCompare(b.originName));
+  if(!rest.length)return '';
+  const nO=new Set(rest.map(r=>r.on)).size, open=openFull.has(g.loc);
+  return `<div class="full"><button class="sec mini fobtn" data-g="${esc(g.loc)}">${open?'▴ Ocultar':'▾ Ver'} ${nO} ${nO>1?'orígenes':'origen'} más sin plazas disponibles</button>
+   <span class="mut sm">(salen hacia este destino, pero ahora mismo están completos${f.incwl?'':' o solo con lista de espera'})</span></div>
+   <div class="forows" ${open?'':'hidden'}>${rest.map(r=>rowFull(r,f)).join('')}</div>`;}
+function rowFull(r,f){
+  const t=r.trips?tripsOk(r,{...f,incwl:true}):[], w=[...new Set(t.filter(x=>x[1]===2).map(x=>x[0]))].sort(), d=[...new Set(t.filter(x=>x[1]===1).map(x=>x[0]))];
+  const pl=w.length?`<span class="pill warn">◐ ${w.length} en lista de espera</span>`:d.length?`<span class="pill ok">● ${d.length}</span>`:`<span class="pill bad">✕ Completo</span>`;
+  return `<div class="rw off" data-k="${esc(r.key)}"><div class="orig"><span class="mob mut sm">Sales desde </span><b>${esc(r.on==='SIN TRANSPORTE'?'Sin transporte':r.originName)}</b></div>
+   <div><span class="tag p">${esc(r.subType)}</span></div><div>${r.stays.map(x=>`<span class="tag">${esc(x)}</span>`).join('')}</div><div>${pl}</div>
+   <div>${w.length?`<b>${fmtShort(w[0])}</b><div class="mut sm">lista de espera</div>`:`<span class="mut sm">${r.estado.completos?r.estado.completos+' días completos':'sin fechas'}</span>`}</div>
+   <div class="price mut">—</div><div class="go"><button class="mini sec">Ver ›</button></div></div>`;}
 function rowHTML(r,f){
   const md=r.estado?avail(r,f):{d:[],w:[]}, nd=nextDate(r,f), pr=md.desde;
   const pl=r.estado?`${md.d.length?`<span class="pill ok">● ${md.d.length} disponible${md.d.length>1?'s':''}</span>`:''}${md.w.length?`<span class="pill warn">◐ ${md.w.length} en espera</span>`:''}`:'<span class="mut sm">—</span>';
@@ -418,12 +432,14 @@ async function openDates(r,force){
     if(res.route){applyRoute(res.route);if(force){cascade();render();}}
 
     const pm=+sel('pmax')||0;if(pm)rows2=rows2.filter(y=>y.priceNum==null||y.priceNum<=pm);
-    if(sel('hotel')||pm){const by={};rows2.forEach(y=>{const st=stC(y.status)==='st-ok'?'disponible':stC(y.status)==='st-warn'?'lista-espera':'completo';if(by[y.date]!=='disponible'&&!(by[y.date]==='lista-espera'&&st==='completo'))by[y.date]=st;});
-      days2=(res.days||[]).filter(([d,s])=>s==='completo'&&!by[d]).concat(Object.entries(by));}
+    {// el calendario resumido de la web a veces dice «disponible» cuando el viaje ya está completo: manda el viaje
+      const by={},rank={disponible:3,'lista-espera':2,completo:1};
+      rows2.forEach(y=>{const st=stC(y.status)==='st-ok'?'disponible':stC(y.status)==='st-warn'?'lista-espera':'completo';if(!by[y.date]||rank[st]>rank[by[y.date]])by[y.date]=st;});
+      days2=(res.days||[]).filter(([d,s])=>!by[d]&&s==='completo').concat(Object.entries(by));}
     const inM=y=>!mes2||y.date.startsWith(mes2);
     const ok=rows2.filter(y=>stC(y.status)==='st-ok'&&inM(y)),wl=rows2.filter(y=>stC(y.status)==='st-warn'&&inM(y));
     const pr=ok.map(y=>y.priceNum).filter(n=>n!=null);
-    $('#sum2').innerHTML=`<div class="kpi"><b style="color:var(--ok)">${ok.length}</b><span>viajes disponibles</span></div><div class="kpi"><b style="color:var(--warn)">${wl.length}</b><span>en lista de espera</span></div><div class="kpi"><b style="color:var(--bad)">${res.completos}</b><span>días completos</span></div>${pr.length?`<div class="kpi"><b>${eur(Math.min(...pr))}</b><span>desde</span></div>`:''}${ok.length?`<div class="kpi"><b>${fmtShort(ok.map(y=>y.date).sort()[0])}</b><span>primera con plaza</span></div>`:''}`;
+    $('#sum2').innerHTML=`<div class="kpi"><b style="color:var(--ok)">${ok.length}</b><span>viajes disponibles</span></div><div class="kpi"><b style="color:var(--warn)">${wl.length}</b><span>en lista de espera</span></div><div class="kpi"><b style="color:var(--bad)">${days2.filter(([d,s])=>s==='completo'&&(!mes2||d.startsWith(mes2))).length}</b><span>días completos</span></div>${pr.length?`<div class="kpi"><b>${eur(Math.min(...pr))}</b><span>desde</span></div>`:''}${ok.length?`<div class="kpi"><b>${fmtShort(ok.map(y=>y.date).sort()[0])}</b><span>primera con plaza</span></div>`:''}`;
     if(!ok.length&&filt2==='st-ok')filt2='';
     $('#chips').innerHTML=(mes2?`<span class="chip on" id="mchip" title="Quitar filtro de mes">📅 ${MES[+mes2.slice(5)-1]} ${mes2.slice(0,4)} ✕</span>`:'')+[['','Todo',ok.length+wl.length],['st-ok','Disponible',ok.length],['st-warn','Lista de espera',wl.length]].map(([k,l,n])=>`<span class="chip ${filt2===k?'on':''}" data-f="${k}">${l} (${n})</span>`).join('');
     $$('#chips .chip[data-f]').forEach(c=>c.onclick=()=>{filt2=c.dataset.f;$$('#chips .chip[data-f]').forEach(d=>d.classList.toggle('on',d===c));renderTrips();});
