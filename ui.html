@@ -265,25 +265,32 @@ function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','o
 function fill(id,opts,first){const e=$('#'+id);if(!e)return;const v=e.value,vl=(e.selectedOptions[0]||{}).textContent||v;
   if(v&&!opts.some(o=>o.v===v))opts=opts.concat([{v,l:vl.replace(/\s+\(\d+\)$/,'').replace(/ · sin plazas ahora$/,'')+' · sin plazas ahora'}]);   // lo elegido nunca desaparece
   e.innerHTML=`<option value="">${first}</option>`+opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('');e.value=v;e.classList.toggle('set',!!e.value);}
+function fill2(id,opts,rest,first){const e=$('#'+id);if(!e)return;const v=e.value;
+  const have=new Set(opts.map(o=>o.v));rest=rest.filter(o=>!have.has(o.v));
+  if(v&&!have.has(v)&&!rest.some(o=>o.v===v))rest.push({v,l:((e.selectedOptions[0]||{}).textContent||v).replace(/\s+\(\d+\)$/,'').replace(/ · (completo|sin plazas ahora)$/,'')});
+  e.innerHTML=`<option value="">${first}</option>`+(opts.length?`<optgroup label="Con plazas (${opts.length})">${opts.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')
+    +(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.sort((a,b)=>a.l.localeCompare(b.l)).map(o=>`<option value="${esc(o.v)}">${esc(o.l)} · completo</option>`).join('')}</optgroup>`:'');
+  e.value=v;e.classList.toggle('set',!!e.value);}
+function restOf(f,ign,fn){const m=new Map();for(const r of U)if(r.estado&&geoMatch(r,f,ign)){const x=fn(r);if(x)m.set(x.v,x);}return [...m.values()];}
 function cascade(){
   const f=curF(), cnt=(ign,fn)=>{const m=new Map();for(const r of U)if(matches(r,f,ign)){const k=fn(r);if(k==null)continue;for(const x of[].concat(k)){const c=m.get(x.v)||{...x,n:0};c.n++;m.set(x.v,c);}}return [...m.values()];};
   const lab=(a)=>a.map(o=>({v:o.v,l:o.l+(o.n&&!LIVE?`  (${o.n})`:'')}));
-  fill('zona',lab(cnt('zona',r=>({v:r.zone,l:r.zone})).sort((a,b)=>a.l.localeCompare(b.l))),'Todas las zonas');
-  fill('prov',lab(cnt('prov',r=>r.province?{v:r.province,l:r.province}:null).sort((a,b)=>a.l.localeCompare(b.l))),'Todas');
-  fill('localidad',lab(cnt('localidad',r=>({v:r.loc,l:`${r.placeName} (${r.province||r.zone})`})).sort((a,b)=>a.l.localeCompare(b.l))),'Todas las localidades');
+  fill2('zona',lab(cnt('zona',r=>({v:r.zone,l:r.zone})).sort((a,b)=>a.l.localeCompare(b.l))),restOf(f,'zona',r=>({v:r.zone,l:r.zone})),'Todas las zonas');
+  fill2('prov',lab(cnt('prov',r=>r.province?{v:r.province,l:r.province}:null).sort((a,b)=>a.l.localeCompare(b.l))),restOf(f,'prov',r=>r.province?{v:r.province,l:r.province}:null),'Todas');
+  fill2('localidad',lab(cnt('localidad',r=>({v:r.loc,l:`${r.placeName} (${r.province||r.zone})`})).sort((a,b)=>a.l.localeCompare(b.l))),restOf(f,'localidad',r=>({v:r.loc,l:`${r.placeName} (${r.province||r.zone})`})),'Todas las localidades');
   {const withP=lab(cnt('hotel',r=>(r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels).map(h=>({v:h,l:h})))).sort((a,b)=>a.l.localeCompare(b.l));
    const have=new Set(withP.map(o=>o.v)),geo=t=>(!f.site||t.site===f.site)&&(!f.zona||t.zone===f.zona)&&(!f.prov||t.province===f.prov)&&(!f.localidad||NL(t.name)+'|'+NL(t.province||t.zone)===f.localidad);
    const tmap=new Map(META.towns.map(t=>[t.site+'|'+t.code,t]));
    const rest=[...new Set(META.hotels.filter(h=>!have.has(h.name)&&h.towns.some(c=>{const t=tmap.get(h.site+'|'+c);return t&&geo(t);})).map(h=>h.name).concat(U.filter(r=>geo({site:r.site,zone:r.zone,province:r.province,name:r.placeName})).flatMap(r=>r.hotels).filter(h=>!have.has(h))))].sort();
    const e=$('#hotel'),v=e.value;
-   e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}" disabled>${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
+   e.innerHTML='<option value="">Cualquier hotel</option>'+(withP.length?`<optgroup label="Con plazas (${withP.length})">${withP.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}</option>`).join('')}</optgroup>`:'')+(rest.length?`<optgroup label="Sin plazas ahora mismo (${rest.length})">${rest.map(h=>`<option value="${esc(h)}">${esc(h)} · completo</option>`).join('')}</optgroup>`:'');
    e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
   {const og=cnt('origen',r=>({v:r.on,l:oLabel(r.originName)})).sort((a,b)=>(a.v==='SIN TRANSPORTE')-(b.v==='SIN TRANSPORTE')||a.l.localeCompare(b.l));
    const have=new Set(og.map(o=>o.v)),rest=new Map();
    for(const r of U)if(!have.has(r.on)&&geoMatch(r,f,'origen'))rest.set(r.on,oLabel(r.originName));
    const e=$('#origen'),v=e.value;
    e.innerHTML='<option value="">Todos los orígenes</option>'+(og.length?`<optgroup label="Con plazas (${og.length})">${og.map(o=>`<option value="${esc(o.v)}">${esc(o.l)}${o.n&&!LIVE?`  (${o.n})`:''}</option>`).join('')}</optgroup>`:'')
-     +(rest.size?`<optgroup label="Sin plazas ahora mismo (${rest.size})">${[...rest].sort((a,b)=>a[1].localeCompare(b[1])).map(([k,l])=>`<option value="${esc(k)}" disabled>${esc(l)} · completo</option>`).join('')}</optgroup>`:'');
+     +(rest.size?`<optgroup label="Sin plazas ahora mismo (${rest.size})">${[...rest].sort((a,b)=>a[1].localeCompare(b[1])).map(([k,l])=>`<option value="${esc(k)}">${esc(l)} · completo</option>`).join('')}</optgroup>`:'');
    e.value=[...e.options].some(o=>o.value===v)?v:'';e.classList.toggle('set',!!e.value);}
   const ms=new Map();for(const r of U)if(matches(r,f,'mes')&&r.estado){const md=avail(r,f,'mes');for(const d of md.d.concat(f.incwl?md.w:[]))if(d)ms.set(d.slice(0,7),(ms.get(d.slice(0,7))||0)+1);}
   fill('mes',[...ms.keys()].sort().map(m=>({v:m,l:`${MES[+m.slice(5)-1]} ${m.slice(0,4)}`+(LIVE?'':`  (${ms.get(m)})`)})),'Cualquier mes');
@@ -338,6 +345,12 @@ function render(){
   $('#rsub').textContent=f.mes?`en ${MES[+f.mes.slice(5)-1]} ${f.mes.slice(0,4)}`:'';
   if(auto)setTimeout(()=>checkPending(pending),0);
   if(!G.length&&pending.length){$('#list').innerHTML=pendHTML+'<div class="skel"></div><div class="skel"></div>';if($('#chk'))$('#chk').onclick=()=>checkPending(pending);return;}
+  if(!G.length&&!f.hotel&&(f.zona||f.prov||f.localidad||f.origen||f.q)){
+    const fg=new Map();for(const r of U)if(r.estado&&geoMatch(r,f)&&(!f.q||N([r.placeName,r.province,r.zone,r.originName,...r.hotels].join(' ')).includes(N(f.q)))){const g=fg.get(r.loc)||{loc:r.loc,x:r,list:[],sites:new Set(),hotels:new Set()};g.sites.add(r.site);r.hotels.forEach(h=>g.hotels.add(h));fg.set(r.loc,g);}
+    if(fg.size){const FG=[...fg.values()].sort((a,b)=>a.x.placeName.localeCompare(b.x.placeName));FG.forEach(g=>openFull.add(g.loc));
+      const what=f.localidad?'en '+esc(FG[0].x.placeName):f.origen?'saliendo '+(f.origen==='SIN TRANSPORTE'?'sin transporte':'desde '+esc(f.origen)):'con estos filtros';
+      $('#list').innerHTML=`<div class="msg">🔒 <b>Ahora mismo no hay plazas disponibles ${what}.</b> ${f.localidad?'El destino sí está en la programación, pero todas sus salidas están completas':'Todo lo que cumple los filtros está completo'}${f.incwl?'':' o solo con lista de espera'}. Debajo tienes todas sus rutas; pulsa «↻ Actualizar datos» para comprobarlo al momento.</div>`+FG.slice(0,SHOWN).map(g=>groupHTML(g,f)).join('');
+      bindList();$$('#list .fobtn').forEach(b=>b.onclick=ev=>{ev.stopPropagation();const g=b.dataset.g;openFull.has(g)?openFull.delete(g):openFull.add(g);render();});return;}}
   if(!G.length){const wl=f.hotel&&!f.incwl&&U.some(r=>r.trips&&tripsOk(r,f).some(t=>t[1]===2));
     $('#list').innerHTML=f.hotel?`<div class="empty"><div class="e">🏨</div><p><b>${esc(f.hotel)} no tiene plazas disponibles ahora mismo${f.mes||f.stay||f.pmax?' con estos filtros':''}.</b></p><p>${wl?'Sí hay fechas en <b>lista de espera</b>: marca «Incluir las que solo tienen lista de espera».':'Todas sus salidas conocidas están completas. Vuelve a mirar tras el próximo scrapeo.'}</p><p><span class="hl" id="hinfo">Ver ficha del hotel</span></p></div>`:`<div class="empty"><div class="e">🧳</div><p><b>No hay viajes con plaza con estos filtros.</b></p><p>Prueba a quitar algún filtro${f.incwl?'':' o marca «Incluir las que solo tienen lista de espera»'}.</p></div>`;
     if($('#hinfo'))$('#hinfo').onclick=()=>openHotel(null,null,f.hotel);return;}
@@ -346,10 +359,10 @@ function render(){
   if($('#more'))$('#more').onclick=()=>{SHOWN+=30;render();};
 }
 function groupHTML(g,f){
-  const hs=f.hotel?[f.hotel]:[...new Set(g.list.flatMap(r=>r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels))].sort();
+  const hs=f.hotel?[f.hotel]:g.list.length?[...new Set(g.list.flatMap(r=>r.trips?tripsOk(r,f,'hotel').filter(t=>t[1]===1||f.incwl).flatMap(t=>t[3]):r.hotels))].sort():[...g.hotels].sort();
   const list=g.list.slice().sort((a,b)=>(a.on==='SIN TRANSPORTE')-(b.on==='SIN TRANSPORTE')||(nextDate(a,f)||'9').localeCompare(nextDate(b,f)||'9'));
   return `<div class="grp"><div class="gh">${[...g.sites].map(siteTag).join(' ')}<span class="lbl">📍 Destino</span><span class="nm">${esc(g.x.placeName)}</span><span class="wh">${esc(g.x.province)}${g.x.zone&&g.x.zone!==g.x.province?' · '+esc(g.x.zone):''}</span>
-   <span class="best">${isFinite(g.desde)?`desde<b>${eur(g.desde)}</b>`:''}</span></div>
+   <span class="best">${g.list.length?(isFinite(g.desde)?`desde<b>${eur(g.desde)}</b>`:''):'<span class="pill bad">✕ Completo ahora mismo</span>'}</span></div>
    ${hs.length?`<div class="hot"><span class="lbl">🏨 Hoteles en el destino</span>${hs.slice(0,8).map(h=>`<span class="hchip" data-h="${esc(h)}" data-s="${esc(g.x.site)}">${esc(h.replace(/\s*\([^)]*\)\s*$/,''))}</span>`).join('')}${hs.length>8?`<span class="mut sm">+${hs.length-8} más</span>`:''}</div>`:''}
    <div class="rw hd"><span>🚌 Sales desde (origen)</span><span>Programa</span><span>Estancias</span><span>Plazas</span><span>Próxima salida</span><span>Desde</span><span></span></div>
    ${list.map(r=>rowHTML(r,f)).join('')}${fullOrigins(g,f)}</div>`;}
