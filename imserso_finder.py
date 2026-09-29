@@ -241,8 +241,8 @@ class Site:
             save_json(self.config_path, self._config_cache)
         return opts
 
-    def _criteria(self, origin, town=None, destination=None, sub_type=None, province=None, stay=None):
-        c = {"paxes": [{"documentNumber": 1}], "origin": origin, "transportIncluded": origin is not None,
+    def _criteria(self, origin, town=None, destination=None, sub_type=None, province=None, stay=None, pax=1):
+        c = {"paxes": [{"documentNumber": i + 1} for i in range(pax)], "origin": origin, "transportIncluded": origin is not None,
              "productTypes": PRODUCT_TYPES, "petsAllowed": None, "stay": stay}
         if town:
             t = self.towns[town]
@@ -325,9 +325,9 @@ class Site:
                         return None
         return None
 
-    def search(self, date, codes, force=False, **kw):
+    def search(self, date, codes, force=False, pax=1, **kw):
         """Viajes concretos para una fecha (uno por producto; un circuito puede tener varios hoteles). Caché 6 h."""
-        c = self._criteria(**kw)
+        c = self._criteria(pax=pax, **kw)
         c.update(startDate=date, productCodes=sorted(codes))
         key = "srch:" + json.dumps(c, sort_keys=True, ensure_ascii=False)
         return self._cached(key, lambda: self._search_live(c, date), force)
@@ -740,8 +740,10 @@ def enrich_one(k, d):
         trips = []
         for r in rows:
             st = 1 if r.get("status") == "Disponible" else 2 if r.get("status") == "Lista de espera" else 0
+            s2 = r.get("status2", "?")
+            st2 = None if s2 in (None, "?") else 1 if s2 == "Disponible" else 2 if s2 == "Lista de espera" else 0
             if st:
-                trips.append([r["date"], st, r.get("stay") or "", [h.get("name") for h in (r.get("hotels") or []) if h.get("name")], r.get("priceNum")])
+                trips.append([r["date"], st, r.get("stay") or "", [h.get("name") for h in (r.get("hotels") or []) if h.get("name")], r.get("priceNum"), st2])
         EXTRA[k] = dict(desde=min(pd) if pd else None, desdeTodo=min(pw) if pw else None, hotels=hs, byHotel=byHotel, trips=trips)
 
 
@@ -921,6 +923,21 @@ def dates_for(site, origin, code, stay=None, hotel_filter=None, progress=lambda 
     def one(cell):
         status, date, codes = cell
         r = site.search(date, codes, origin=origin, stay=stay, force=force, **kw)
+        # la programación consulta para 1 viajero: comprobamos también para 2 (pareja en habitación doble)
+        if any(x["status"] == "Disponible" for x in r):
+            try:
+                r2 = site.search(date, codes, origin=origin, stay=stay, force=force, pax=2, **kw)
+                st2 = {(x.get("productCode"), x["hotel"]): x["status"] for x in r2} or None
+            except WafBlocked:
+                raise
+            except Exception as e:  # noqa
+                log("2 viajeros: fallo", date, e)
+                st2 = None
+            for x in r:   # si la consulta para 2 funcionó y el viaje no sale, es que no hay sitio para 2
+                x["status2"] = None if st2 is None else st2.get((x.get("productCode"), x["hotel"]), "Completo")
+        else:
+            for x in r:
+                x["status2"] = x["status"]
         done[0] += 1
         progress(f"{site.host} / {site.origin_name(origin)}: leyendo fechas {done[0]}/{len(cells)}")
         return r

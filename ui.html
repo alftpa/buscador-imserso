@@ -29,7 +29,7 @@ a{color:inherit}
 .sug .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;min-width:70px;font-weight:700}
 main{max-width:1280px;margin:-56px auto 0;padding:0 16px 80px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:var(--sh)}
-.filters{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.filters{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 label.l{display:block;font-size:10.5px;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em;font-weight:700}
 select,input.f{width:100%;padding:10px 32px 10px 11px;border:1px solid var(--line);border-radius:10px;font-size:14.5px;background:var(--card);color:var(--ink);font-family:inherit;appearance:none;-webkit-appearance:none}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2364748b' stroke-width='1.8' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center}
@@ -132,6 +132,7 @@ button.mini{padding:6px 11px;font-size:13px;border-radius:8px}button:disabled{op
   <div><label class="l">📍 Destino (localidad)</label><select id="localidad"></select></div>
   <div><label class="l">🏨 Hotel en destino</label><select id="hotel"></select></div>
   <div><label class="l">🚌 Origen (ciudad de salida)</label><select id="origen"></select></div>
+  <div><label class="l">👥 Viajeros</label><select id="pax"><option value="2">2 personas (habitación doble)</option><option value="1">1 persona</option></select></div>
   <div><label class="l">Ordenar por</label><select id="orden"><option value="fecha">Salida más próxima</option><option value="precio">Precio más bajo</option><option value="plazas">Más fechas con plaza</option><option value="az">Localidad A-Z</option></select></div>
  </div>
  <div class="bar2">
@@ -186,7 +187,7 @@ const fmtShort=d=>{if(!d)return'';const[y,m,dd]=d.split('-');return `${+dd} ${ME
 const eur=n=>n==null?'':n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
 const today=new Date().toISOString().slice(0,10);
 const siteTag=s=>`<span class="site ${s==='mundicolor'?'mc':'ts'}">${s==='mundicolor'?'Mundicolor':'Turismo Social'}</span>`;
-const FIL=['zona','prov','localidad','hotel','origen','orden'];
+const FIL=['zona','prov','localidad','hotel','origen','pax','orden'];
 let META=null, U=[], LIVE=false, SHOWN=30;
 
 /* ---------- utilidades red ---------- */
@@ -223,8 +224,10 @@ function buildUniverse(all){
 }
 /* ---------- filtrado ---------- */
 /* Viajes de una combinación que cumplen los filtros (ign = filtro a ignorar, para los desplegables) */
+const PAX2=()=>sel('pax')!=='1';
+function stP(t){return PAX2()&&t.length>5&&t[5]!=null?t[5]:t[1];}   // t[5] = estado para 2 viajeros
 function tripsOk(r,f,ign){
-  return (r.trips||[]).filter(([d,st,stay,hs,p])=>d>=today&&(ign==='mes'||!f.mes||d.startsWith(f.mes))&&(ign==='stay'||!f.stay||stay===f.stay)
+  return (r.trips||[]).map(t=>{const s=stP(t);return s===t[1]?t:[t[0],s,t[2],t[3],t[4],t[5]];}).filter(([d,st,stay,hs,p])=>d>=today&&(ign==='mes'||!f.mes||d.startsWith(f.mes))&&(ign==='stay'||!f.stay||stay===f.stay)
     &&(ign==='hotel'||!f.hotel||hs.includes(f.hotel))&&(ign==='pmax'||!f.pmax||p==null||p<=+f.pmax));}
 function avail(r,f,ign){   // {d:[fechas disponibles], w:[fechas lista espera], desde, exact}
   if(r.trips){const t=tripsOk(r,f,ign),d=new Set(),w=new Set();let desde=null;
@@ -259,7 +262,7 @@ function geoMatch(r,f,ignore){
   if(ignore!=='origen'&&f.origen&&r.on!==f.origen)return false;
   return true;}
 const oLabel=o=>o==='SIN TRANSPORTE'?'Sin transporte (voy por mi cuenta)':o;
-function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
+function curF(){const f=Object.fromEntries(['zona','prov','localidad','hotel','origen','mes','stay','pmax','site','orden','pax'].map(id=>[id,sel(id)]));f.incwl=$('#incwl').checked;f.q=$('#q').value.trim();return f;}
 
 /* ---------- desplegables en cascada ---------- */
 function fill(id,opts,first){const e=$('#'+id);if(!e)return;const v=e.value,vl=(e.selectedOptions[0]||{}).textContent||v;
@@ -441,7 +444,18 @@ async function openDates(r,force){
   try{
     const res=await runJob('/api/fechas',{site:r.site,origin:r.origin,place:r.place,stay:sel('stay'),hotel:sel('hotel'),force:!!force});
     if(cur2!==r)return;
-    rows2=res.rows;days2=res.days||[];
+    showDates(r,res,force);
+    const age=Date.now()/1000-(res.snapshot||0);
+    if(!force&&age>1800){   // dato de hace más de 30 min: se comprueba en directo sin hacer esperar
+      $('#msg2').insertAdjacentHTML('beforeend','<div class="mut sm" id="live2">⏳ Comprobando en directo con la web oficial…</div>');
+      try{const res2=await runJob('/api/fechas',{site:r.site,origin:r.origin,place:r.place,stay:sel('stay'),hotel:sel('hotel'),force:true});if(cur2===r)showDates(r,res2,true);}
+      catch(e){const l=$('#live2');if(l)l.textContent='No se pudo comprobar en directo ahora ('+e.message+'). Se muestran los datos guardados.';}
+    }
+  }catch(e){$('#trips').innerHTML=`<div class="err">⚠️ ${esc(e.message)}</div>`;$('#cal').innerHTML='';}
+}
+function showDates(r,res,force){
+  {
+    rows2=res.rows.map(y=>{const s1=y.status1||y.status;return {...y,status1:s1,status:PAX2()&&y.status2?y.status2:s1};});days2=res.days||[];
     if(res.route){applyRoute(res.route);if(force){cascade();render();}}
 
     const pm=+sel('pmax')||0;if(pm)rows2=rows2.filter(y=>y.priceNum==null||y.priceNum<=pm);
@@ -457,11 +471,11 @@ async function openDates(r,force){
     $('#chips').innerHTML=(mes2?`<span class="chip on" id="mchip" title="Quitar filtro de mes">📅 ${MES[+mes2.slice(5)-1]} ${mes2.slice(0,4)} ✕</span>`:'')+[['','Todo',ok.length+wl.length],['st-ok','Disponible',ok.length],['st-warn','Lista de espera',wl.length]].map(([k,l,n])=>`<span class="chip ${filt2===k?'on':''}" data-f="${k}">${l} (${n})</span>`).join('');
     $$('#chips .chip[data-f]').forEach(c=>c.onclick=()=>{filt2=c.dataset.f;$$('#chips .chip[data-f]').forEach(d=>d.classList.toggle('on',d===c));renderTrips();});
     if($('#mchip'))$('#mchip').onclick=()=>{mes2='';$('#mchip').remove();renderTrips();};
-    const note=[sel('hotel')?`Solo el hotel «${esc(sel('hotel'))}».`:'',sel('stay')?`Solo estancias de ${esc(META.stays[sel('stay')])}.`:'',mes2?`Salidas de ${MES[+mes2.slice(5)-1]}.`:'',sel('pmax')?`Hasta ${sel('pmax')} €.`:'',res.snapshot?`Datos del ${new Date(res.snapshot*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · «↻ Actualizar» consulta ahora.`:'Consultado ahora mismo.'].filter(Boolean).join(' ');
+    const note=[sel('hotel')?`Solo el hotel «${esc(sel('hotel'))}».`:'',sel('stay')?`Solo estancias de ${esc(META.stays[sel('stay')])}.`:'',mes2?`Salidas de ${MES[+mes2.slice(5)-1]}.`:'',sel('pmax')?`Hasta ${sel('pmax')} €.`:'',`Plazas para ${PAX2()?'2 personas':'1 persona'}.`,res.snapshot&&!force?`Datos del ${new Date(res.snapshot*1000).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} · «↻ Actualizar» consulta ahora.`:'✅ Comprobado ahora mismo con la web oficial.'].filter(Boolean).join(' ');
     $('#msg2').innerHTML=`<div class="mut sm" style="margin-bottom:10px">${note}</div>`;
     renderCal();renderTrips();
     const m=sel('mes');if(m){const el=$(`.mon[data-m="${m}"]`);el&&el.scrollIntoView({block:'nearest'});}
-  }catch(e){$('#trips').innerHTML=`<div class="err">⚠️ ${esc(e.message)}</div>`;$('#cal').innerHTML='';}
+  }
 }
 function renderCal(){
   const by=Object.fromEntries(days2.map(([d,s])=>[d,s]));
@@ -532,7 +546,7 @@ function saveState(){try{const f=curF();localStorage.setItem('imserso.v2',JSON.s
 function loadState(){try{const f=JSON.parse(localStorage.getItem('imserso.v2')||'{}');FIL.forEach(id=>{if(f[id]!=null)$('#'+id).value=f[id];});$('#incwl').checked=!!f.incwl;if(f.q){$('#q').value=f.q;qchg();}}catch(e){}}
 FIL.forEach(id=>$('#'+id).addEventListener('change',update));
 $('#incwl').onchange=update;
-$('#limpiar').onclick=()=>{FIL.forEach(id=>{if(id!=='orden')$('#'+id).value='';});$('#q').value='';qchg();$('#incwl').checked=false;update();};
+$('#limpiar').onclick=()=>{FIL.forEach(id=>{if(id!=='orden'&&id!=='pax')$('#'+id).value='';});$('#q').value='';qchg();$('#incwl').checked=false;update();};
 $('#buscar').onclick=buscarLive;
 $('#ftog').onclick=()=>$('#fcard').classList.toggle('open');
 $('#theme').onclick=()=>{const r=document.documentElement,cur=r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'),n=cur==='dark'?'light':'dark';r.dataset.theme=n;try{localStorage.setItem('imserso.theme',n)}catch(e){}};
