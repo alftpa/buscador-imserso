@@ -214,8 +214,12 @@ class Site:
                     name = unescape(name.strip())
                     self.origins.append((code, name))
                     self.origin_by_norm.setdefault(norm(name), code)
-            m = re.search(r"destinations\s*:\s*(\[.*?\])\s*,?\s*\n\s*\}\);", html, re.S)
-            for d in json.loads(m.group(1)):
+            # el array JSON va seguido de otras claves (p. ej. calendarConfig): se decodifica solo el array
+            m = re.search(r"destinations\s*:\s*\[", html)
+            if not m:
+                raise RuntimeError(f"{self.host}: no se encuentra la lista de destinos en /scheduler")
+            dests, _ = json.JSONDecoder().raw_decode(html, m.end() - 1)
+            for d in dests:
                 for p in d["provinces"]:
                     for t in p["towns"]:
                         self.towns[t["code"]] = dict(
