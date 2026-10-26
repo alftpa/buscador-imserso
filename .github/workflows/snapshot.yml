@@ -33,3 +33,9 @@ jobs:
           git add snapshot.json.gz
           git commit -qm "snapshot $(date -u +%FT%TZ)"
           git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
+      - name: Comprobar que se leyeron las dos webs
+        run: |
+          if [ -f webs_fallidas.txt ]; then
+            echo "::error::No se pudo leer $(cat webs_fallidas.txt): sus datos son los del scrapeo anterior. Probablemente la web ha cambiado."
+            exit 1
+          fi

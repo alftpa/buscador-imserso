@@ -478,7 +478,11 @@ class HotelIndex:
                 return self.data
             hotels = {k: dict(v) for k, v in (self.data or {}).items()}
             for site in SITES.values():
-                site.load()
+                try:
+                    site.load()
+                except Exception as e:  # noqa
+                    log("catálogo: se omite", site.host, e)
+                    continue
                 hotels.setdefault(site.key, {})
                 origins = [None]   # sin transporte + orígenes grandes cubren el catálogo entero
                 for name in ("MADRID", "BARCELONA", "VALENCIA", "SEVILLA"):
@@ -586,7 +590,10 @@ class HotelIndex:
             for name, info in sorted(hs.items()):
                 tl = []
                 for tc in info["towns"]:
-                    p = s.place(tc)
+                    try:
+                        p = s.place(tc)
+                    except (KeyError, StopIteration):   # localidad que la web ya no programa
+                        continue
                     entry = dict(site=sk, code=tc, name=p["name"], province=p["provinceName"],
                                  zone=p["destinationName"], subType=SUBTYPES.get(p["subType"], p["subType"]))
                     tl.append(entry)
@@ -602,14 +609,14 @@ WARM = {"done": False, "error": None}
 
 def warm_configs():
     """Lee (o recupera de caché) las opciones de todos los orígenes de las dos webs."""
-    try:
-        for site in SITES.values():
+    for site in SITES.values():   # si una web falla, la otra se prepara igualmente
+        try:
             site.load()
             with cf.ThreadPoolExecutor(WORKERS) as ex:
                 list(ex.map(site.config, [None] + [c for c, _ in site.origins]))
-    except Exception as e:  # noqa
-        WARM["error"] = str(e)
-        log("warm error", e)
+        except Exception as e:  # noqa
+            WARM["error"] = str(e)
+            log("warm error", site.key, e)
     WARM["done"] = True
     log("opciones de todos los orígenes listas")
 
@@ -653,7 +660,11 @@ def precache_loop():
 def precache_once():
     jobs = []
     for site in SITES.values():
-        site.load()
+        try:
+            site.load()
+        except Exception as e:  # noqa
+            log("precache: se omite", site.host, e)
+            continue
         for o in [None] + [c for c, _ in site.origins]:
             for tc in sorted({x["townCode"] for x in site.config(o, force=True) if x["townCode"] in site.towns}):
                 jobs.append((site, o, tc))
@@ -802,16 +813,22 @@ def snapshot_loop():
         pass
     while True:
         try:
-            req = urllib.request.Request(SNAPSHOT_URL + f"?t={int(time.time() // 600)}", headers={"User-Agent": "ImsersoFinder"})
-            raw = urllib.request.urlopen(req, timeout=60).read()
-            apply_snapshot(json.loads(gzip.decompress(raw).decode("utf-8")), "GitHub")
+            apply_snapshot(fetch_snapshot(), "GitHub")
         except Exception as e:  # noqa
             log("snapshot no disponible:", e)
         time.sleep(900)
 
 
+def fetch_snapshot():
+    import gzip
+    req = urllib.request.Request(SNAPSHOT_URL + f"?t={int(time.time() // 600)}", headers={"User-Agent": "ImsersoFinder"})
+    raw = urllib.request.urlopen(req, timeout=60).read()
+    return json.loads(gzip.decompress(raw).decode("utf-8"))
+
+
 def build_snapshot(path, progress=log):
-    """Scrapeo completo (lo ejecuta GitHub Actions): disponibilidad + fechas/precios de todo lo que tiene plaza."""
+    """Scrapeo completo (lo ejecuta GitHub Actions): disponibilidad + fechas/precios de todo lo que tiene plaza.
+    Devuelve las webs que no se pudieron leer (sus datos se conservan del snapshot anterior)."""
     import gzip
     precache_once()
     fechas = {}
@@ -837,11 +854,26 @@ def build_snapshot(path, progress=log):
             list(ex.map(one, keys))
     except WafBlocked as e:
         log("snapshot parcial por bloqueo:", e)
-    d = dict(ts=time.time(), estado=PRE["data"], fechas=fechas, hoteles=INDEX.data,
+    d = dict(ts=time.time(), estado=PRE["data"], fechas=fechas, hoteles=dict(INDEX.data or {}),
              config={k: s_._config_cache for k, s_ in SITES.items()})
+    failed = [k for k, s_ in SITES.items() if not s_.loaded]
+    if failed:   # no perder los datos de la web caída: se copian del snapshot publicado
+        try:
+            prev = fetch_snapshot()
+        except Exception as e:  # noqa
+            prev = {}
+            log("snapshot anterior no disponible:", e)
+        for k in failed:
+            for part in ("estado", "fechas"):
+                d[part].update({x: v for x, v in (prev.get(part) or {}).items() if x.startswith(k + "|")})
+            for part in ("hoteles", "config"):
+                if k in (prev.get(part) or {}):
+                    d[part][k] = prev[part][k]
+            log("snapshot: datos de", k, "conservados del anterior")
     with gzip.open(path, "wt", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
     log("snapshot escrito:", path, os.path.getsize(path) // 1024, "KB,", len(fechas), "combinaciones con fechas")
+    return failed
 
 
 def keep_awake():
@@ -1675,10 +1707,19 @@ def cli(args):
 def main():
     if len(sys.argv) > 2 and sys.argv[1] == "--snapshot":
         for s_ in SITES.values():
-            s_.load()
+            try:
+                s_.load()
+            except Exception as e:  # noqa
+                log("NO SE PUEDE LEER", s_.host, "-", e)
+        if not any(s_.loaded for s_ in SITES.values()):
+            sys.exit("ninguna web responde")
         if not INDEX.ready():
             INDEX.build()
-        return build_snapshot(sys.argv[2])
+        failed = build_snapshot(sys.argv[2])
+        if failed:   # el workflow publica lo que hay y después marca el fallo para que llegue el aviso
+            with open("webs_fallidas.txt", "w", encoding="utf-8") as f:
+                f.write(" ".join(SITES[k].host for k in failed))
+        return
     if len(sys.argv) > 1:
         return cli(sys.argv[1:])
     port = int(os.environ.get("PORT") or 0) or free_port()
